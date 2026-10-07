@@ -50,13 +50,13 @@ function Home() {
   const baseName = image?.file.name.replace(/\.[^.]+$/, "") ?? "image";
 
   return (
-    <main className="mx-auto max-w-[1600px] px-4 py-6 lg:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-4 py-6 lg:px-6">
       {isDemoMode && (
         <div className="mb-5 flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent">
           <Info className="h-4 w-4 shrink-0" /> Demo mode: no backend configured (set VITE_API_URL). Results are simulated for demonstration.
         </div>
       )}
-      <div className="panel grid items-start gap-5 p-5 lg:grid-cols-[22fr_58fr_20fr] md:grid-cols-2">
+      <div className="panel grid flex-1 items-stretch gap-5 p-5 lg:min-h-[calc(100vh-3rem)] lg:grid-cols-[22fr_58fr_20fr] md:grid-cols-2">
         <aside className="flex h-full flex-col gap-5 md:col-span-1 lg:col-span-1">
           <UploadCard image={image} onChange={onImage} />
           <ReconstructionSettings lambda={lambda} setLambda={setLambda} method={method} setMethod={setMethod}
@@ -92,16 +92,14 @@ function Home() {
                 )} />
             </div>
           )}
+
+          <ReconstructionProcess activeStep={step} />
         </div>
 
         <aside className="flex h-full flex-col gap-5">
           <ResultsCard result={result} />
           <MathematicalModel />
         </aside>
-      </div>
-
-      <div className="mt-5">
-        <ReconstructionProcess activeStep={step} />
       </div>
     </main>
   );
