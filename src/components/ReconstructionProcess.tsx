@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react";
 import { Tex } from "./Tex";
 
 const steps = [
@@ -15,13 +14,13 @@ export function ReconstructionProcess({ activeStep }: { activeStep: number }) {
       <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         {steps.map((s, i) => {
           const active = activeStep > i;
+          const segmentDone = activeStep > i + 1;
           return (
             <div key={s.t} className="flex flex-col">
-              <div className="flex h-4 items-center">
-                <span className={`h-2 w-2 shrink-0 rounded-full transition-colors ${active ? "bg-primary" : "bg-border"}`} />
-                <span className={`h-px flex-1 transition-colors ${active ? "bg-primary" : "bg-border"}`} />
+              <div className="flex h-2 items-center">
+                <span className={`h-2 w-2 shrink-0 rounded-full ring-4 transition-colors ${active ? "bg-primary ring-primary/20" : "bg-border ring-transparent"}`} />
                 {i < steps.length - 1 && (
-                  <ArrowRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${active ? "text-primary" : "text-muted-foreground/40"}`} />
+                  <span className={`h-px flex-1 -mr-6 transition-colors ${segmentDone ? "bg-primary" : "bg-border"}`} />
                 )}
               </div>
               <h3 className="mt-3 text-sm font-medium leading-snug">{s.t}</h3>
