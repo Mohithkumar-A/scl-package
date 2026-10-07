@@ -1,7 +1,7 @@
 import type { ReconstructionRequest, ReconstructionResult } from "@/types/reconstruction";
 import { mockReconstruct } from "./mock";
 
-export const API_URL: string | undefined = import.meta.env.VITE_API_URL;
+export const API_URL: string | undefined = import.meta.env['VITE_API_URL'];
 export const isDemoMode = !API_URL;
 
 /** POST /api/reconstruct — multipart: image, lambda, method */

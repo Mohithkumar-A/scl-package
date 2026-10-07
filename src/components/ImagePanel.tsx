@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 interface Props {
   title: string;
-  src?: string | null;
+  src?: string | null | undefined;
   dims?: { width: number; height: number } | null;
   empty: ReactNode;
   footer?: ReactNode;
