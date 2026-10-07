@@ -1,7 +1,7 @@
 import { Sigma } from "lucide-react";
 import { Tex } from "./Tex";
 
-const vars = [
+const vars: [string, string][] = [
   ["x", "reconstructed image represented as a vector"],
   ["A", "sampling/operator matrix representing known pixels"],
   ["b", "observed pixel values"],
