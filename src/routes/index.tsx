@@ -92,14 +92,16 @@ function Home() {
                 )} />
             </div>
           )}
-          <div className="hidden md:block"><ReconstructionProcess activeStep={step} /></div>
         </div>
 
         <aside className="flex h-full flex-col gap-5">
           <ResultsCard result={result} />
           <MathematicalModel />
-          <div className="md:hidden"><ReconstructionProcess activeStep={step} /></div>
         </aside>
+      </div>
+
+      <div className="mt-5">
+        <ReconstructionProcess activeStep={step} />
       </div>
     </main>
   );
@@ -108,8 +110,10 @@ function Home() {
 function Empty({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div className="flex flex-col items-center gap-2 px-4 text-center text-muted-foreground">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-card">{icon}</span>
-      <p className="text-sm">{text}</p>
+      <span className="flex h-20 w-20 items-center justify-center rounded-2xl border border-border bg-card">
+        {icon}
+      </span>
+      <p className="max-w-[26ch] text-sm">{text}</p>
     </div>
   );
 }

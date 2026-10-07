@@ -14,7 +14,6 @@ export const Route = createFileRoute("/contact")({
 });
 
 const team = [
-  { name: "Kshetheesan Bharavi", reg: "25PD11" },
   { name: "Mohithkumar A", reg: "25PD12" },
   { name: "Srriram A R", reg: "25PD34" },
 ];

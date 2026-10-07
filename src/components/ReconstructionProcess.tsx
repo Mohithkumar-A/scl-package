@@ -12,17 +12,21 @@ export function ReconstructionProcess({ activeStep }: { activeStep: number }) {
   return (
     <section className="panel p-5">
       <h2 className="mb-5 text-sm font-semibold">Reconstruction Process</h2>
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         {steps.map((s, i) => {
           const active = activeStep > i;
           return (
-            <div key={s.t} className="relative">
-              <div className={`flex items-center gap-2 border-l-2 pl-3 ${active ? "border-primary" : "border-border"}`}>
-                {i < steps.length - 1 && <ArrowRight className="hidden h-4 w-4 text-muted-foreground md:block" />}
+            <div key={s.t} className="flex flex-col">
+              <div className="flex h-4 items-center">
+                <span className={`h-2 w-2 shrink-0 rounded-full transition-colors ${active ? "bg-primary" : "bg-border"}`} />
+                <span className={`h-px flex-1 transition-colors ${active ? "bg-primary" : "bg-border"}`} />
+                {i < steps.length - 1 && (
+                  <ArrowRight className={`h-3.5 w-3.5 shrink-0 transition-colors ${active ? "text-primary" : "text-muted-foreground/40"}`} />
+                )}
               </div>
-              <h3 className="mt-3 text-sm font-medium">{s.t}</h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.d}</p>
-              <div className="mt-2 overflow-x-auto text-xs"><Tex math={s.m} /></div>
+              <h3 className="mt-3 text-sm font-medium leading-snug">{s.t}</h3>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{s.d}</p>
+              <div className="mt-auto pt-3 text-xs"><Tex math={s.m} /></div>
             </div>
           );
         })}
