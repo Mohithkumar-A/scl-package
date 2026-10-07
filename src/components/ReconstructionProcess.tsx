@@ -17,10 +17,8 @@ export function ReconstructionProcess({ activeStep }: { activeStep: number }) {
           const active = activeStep > i;
           return (
             <div key={s.t} className="relative">
-              <div className="flex items-center gap-2">
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border font-mono text-sm font-semibold transition-colors ${
-                  active ? "border-primary bg-primary text-primary-foreground" : "border-accent/50 bg-accent/10 text-accent"}`}>{i + 1}</span>
-                {i < steps.length - 1 && <ArrowRight className="hidden h-4 w-4 flex-1 text-muted-foreground md:block" />}
+              <div className={`flex items-center gap-2 border-l-2 pl-3 ${active ? "border-primary" : "border-border"}`}>
+                {i < steps.length - 1 && <ArrowRight className="hidden h-4 w-4 text-muted-foreground md:block" />}
               </div>
               <h3 className="mt-3 text-sm font-medium">{s.t}</h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.d}</p>
