@@ -8,7 +8,6 @@ import { CompareSlider } from "@/components/CompareSlider";
 import { ReconstructionProcess } from "@/components/ReconstructionProcess";
 import { MathematicalModel } from "@/components/MathematicalModel";
 import { ResultsCard } from "@/components/ResultsCard";
-import { KeyConcepts } from "@/components/KeyConcepts";
 import { LoadingState } from "@/components/LoadingState";
 import { reconstructImage, isDemoMode } from "@/services/api";
 import type { ReconstructionMethod, ReconstructionResult, UploadedImage } from "@/types/reconstruction";
@@ -57,14 +56,14 @@ function Home() {
           <Info className="h-4 w-4 shrink-0" /> Demo mode: no backend configured (set VITE_API_URL). Results are simulated for demonstration.
         </div>
       )}
-      <div className="grid gap-5 lg:grid-cols-[22fr_58fr_20fr] md:grid-cols-2">
-        <aside className="space-y-5 md:col-span-1 lg:col-span-1">
+      <div className="panel grid items-start gap-5 p-5 lg:grid-cols-[22fr_58fr_20fr] md:grid-cols-2">
+        <aside className="flex h-full flex-col gap-5 md:col-span-1 lg:col-span-1">
           <UploadCard image={image} onChange={onImage} />
           <ReconstructionSettings lambda={lambda} setLambda={setLambda} method={method} setMethod={setMethod}
             canRun={!!image} loading={loading} error={error} onRun={run} />
         </aside>
 
-        <div className="space-y-5 md:col-span-2 lg:col-span-1">
+        <div className="flex h-full flex-col gap-5 md:col-span-2 lg:col-span-1">
           <div className="flex justify-end">
             <div className="inline-flex rounded-lg border border-border bg-card p-1 text-xs">
               {(["side", "compare"] as const).map((v) => (
@@ -96,11 +95,10 @@ function Home() {
           <div className="hidden md:block"><ReconstructionProcess activeStep={step} /></div>
         </div>
 
-        <aside className="space-y-5">
+        <aside className="flex h-full flex-col gap-5">
           <ResultsCard result={result} />
           <MathematicalModel />
           <div className="md:hidden"><ReconstructionProcess activeStep={step} /></div>
-          <KeyConcepts />
         </aside>
       </div>
     </main>
