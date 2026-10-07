@@ -16,7 +16,7 @@ export function ImagePanel({ title, src, dims, empty, footer, overlay }: Props) 
         <h3 className="text-sm font-semibold">{title}</h3>
         {dims && <span className="rounded-md border border-border bg-surface px-2 py-0.5 font-mono text-[11px] text-muted-foreground">{dims.width} × {dims.height}</span>}
       </div>
-      <div className="checker relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border border-border">
+      <div className="checker relative flex h-[340px] items-center justify-center overflow-hidden rounded-xl border border-border lg:h-[460px]">
         {src ? <img src={src} alt={title} className="max-h-full max-w-full object-contain" /> : empty}
         {overlay}
       </div>
