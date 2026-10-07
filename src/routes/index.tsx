@@ -64,7 +64,7 @@ function Home() {
             canRun={!!image} loading={loading} error={error} onRun={run} />
         </aside>
 
-        <div className="order-first space-y-5 md:order-none md:col-span-2 lg:col-span-1 lg:order-none max-md:order-none">
+        <div className="space-y-5 md:col-span-2 lg:col-span-1">
           <div className="flex justify-end">
             <div className="inline-flex rounded-lg border border-border bg-card p-1 text-xs">
               {(["side", "compare"] as const).map((v) => (
