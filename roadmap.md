@@ -1,0 +1,4 @@
+- [ ] Add interactive selectable grid and validation to the input image panel.
+- [ ] Generate an exact-size binary mask and send it through the reconstruction API.
+- [ ] Update the process workflow and test mask/grid logic.
+- [ ] Verify preview build and central upload/select/reconstruct flow.
