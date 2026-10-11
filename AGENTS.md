@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Keep grid-selection state and pixel-accurate binary-mask conversion in reusable utilities separate from image-panel rendering, so display sizing cannot alter reconstruction input.
