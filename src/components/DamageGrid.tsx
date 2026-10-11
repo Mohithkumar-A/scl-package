@@ -2,31 +2,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Eraser, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { GridResolution, GridSelection, MaskDimensions } from "@/types/reconstruction";
-import { createGridSelection, mapGridCellAtPoint, selectedPixelCount, toggleGridCell } from "@/utils/mask";
+import { mapGridCellAtPoint, remapGridSelection, selectedPixelCount, toggleGridCell } from "@/utils/mask";
 
 interface Props {
   src?: string | null;
   dims?: MaskDimensions | null;
+  selection: GridSelection;
   disabled?: boolean;
   onSelectionChange: (selection: GridSelection) => void;
 }
 
 const resolutions: GridResolution[] = [10, 20, 40];
 
-export function DamageGrid({ src, dims, disabled = false, onSelectionChange }: Props) {
+export function DamageGrid({ src, dims, selection, disabled = false, onSelectionChange }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selectionRef = useRef<GridSelection>(createGridSelection());
   const historyRef = useRef<GridSelection[]>([]);
   const pointerRef = useRef<{ active: boolean; value: boolean; visited: Set<number> }>({ active: false, value: false, visited: new Set() });
-  const [selection, setSelection] = useState(selectionRef.current);
+  const [focusedCell, setFocusedCell] = useState(0);
   const [imageBounds, setImageBounds] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  selectionRef.current = selection;
 
   const commit = useCallback((next: GridSelection, undoable = true) => {
     if (undoable) historyRef.current.push(selectionRef.current);
     selectionRef.current = next;
-    setSelection(next);
     onSelectionChange(next);
   }, [onSelectionChange]);
 
@@ -90,26 +91,20 @@ export function DamageGrid({ src, dims, disabled = false, onSelectionChange }: P
     drag.visited.add(index);
     const next = toggleGridCell(selectionRef.current, index, drag.value);
     selectionRef.current = next;
-    setSelection(next);
     onSelectionChange(next);
   };
 
   const finishDrag = () => {
     const drag = pointerRef.current;
-    if (drag.active && drag.visited.size > 0) {
-      const before = selectionRef.current.cells.slice();
-      for (const index of drag.visited) before[index] = !drag.value;
-      historyRef.current.push({ ...selectionRef.current, cells: before });
-    }
     drag.active = false;
     drag.visited.clear();
   };
 
   const changeResolution = (resolution: GridResolution) => {
     if (resolution === selection.resolution) return;
-    if (selection.cells.some(Boolean) && !window.confirm("Changing grid size will clear the current selection. Continue?")) return;
+    const remapped = remapGridSelection(selection, resolution);
     historyRef.current = [];
-    commit(createGridSelection(resolution), false);
+    commit(remapped, false);
   };
 
   const clear = () => commit(createGridSelection(selection.resolution));
@@ -145,16 +140,29 @@ export function DamageGrid({ src, dims, disabled = false, onSelectionChange }: P
             const value = !selectionRef.current.cells[index];
             pointerRef.current = { active: true, value, visited: new Set() };
             historyRef.current.push(selectionRef.current);
+            setFocusedCell(index);
             updateAtPoint(event.clientX, event.clientY);
           }}
           onPointerMove={(event) => { if (pointerRef.current.active) updateAtPoint(event.clientX, event.clientY); }}
           onPointerUp={finishDrag}
           onPointerCancel={finishDrag}
           onKeyDown={(event) => {
-            if (disabled || !["Enter", " "].includes(event.key)) return;
-            event.preventDefault();
-            const nextIndex = selection.cells.findIndex((cell) => !cell);
-            if (nextIndex >= 0) commit(toggleGridCell(selection, nextIndex));
+            if (disabled) return;
+            const row = Math.floor(focusedCell / selection.resolution);
+            const col = focusedCell % selection.resolution;
+            const moves: Record<string, number> = {
+              ArrowUp: row > 0 ? -selection.resolution : 0,
+              ArrowDown: row < selection.resolution - 1 ? selection.resolution : 0,
+              ArrowLeft: col > 0 ? -1 : 0,
+              ArrowRight: col < selection.resolution - 1 ? 1 : 0,
+            };
+            if (event.key in moves) {
+              event.preventDefault();
+              setFocusedCell((current) => current + moves[event.key]);
+            } else if (["Enter", " "].includes(event.key)) {
+              event.preventDefault();
+              commit(toggleGridCell(selectionRef.current, focusedCell));
+            }
           }} />}
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">

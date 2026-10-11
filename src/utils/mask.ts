@@ -16,6 +16,40 @@ export function toggleGridCell(selection: GridSelection, index: number, value?: 
   return { ...selection, cells };
 }
 
+/** Remap selected-cell coverage when the grid resolution changes. */
+export function remapGridSelection(selection: GridSelection, resolution: GridResolution): GridSelection {
+  if (selection.resolution === resolution) return selection;
+  const oldResolution = selection.resolution;
+  const cells = Array(resolution * resolution).fill(false) as boolean[];
+  const targetCellArea = oldResolution * oldResolution;
+
+  for (let row = 0; row < resolution; row++) {
+    for (let col = 0; col < resolution; col++) {
+      let selectedArea = 0;
+      for (let oldRow = 0; oldRow < oldResolution; oldRow++) {
+        const overlapY = Math.max(
+          0,
+          Math.min((row + 1) * oldResolution, (oldRow + 1) * resolution) -
+            Math.max(row * oldResolution, oldRow * resolution),
+        );
+        if (overlapY === 0) continue;
+        for (let oldCol = 0; oldCol < oldResolution; oldCol++) {
+          if (!selection.cells[oldRow * oldResolution + oldCol]) continue;
+          const overlapX = Math.max(
+            0,
+            Math.min((col + 1) * oldResolution, (oldCol + 1) * resolution) -
+              Math.max(col * oldResolution, oldCol * resolution),
+          );
+          selectedArea += overlapX * overlapY;
+        }
+      }
+      cells[row * resolution + col] = selectedArea * 2 >= targetCellArea;
+    }
+  }
+
+  return { resolution, cells };
+}
+
 export function mapGridCellAtPoint(x: number, y: number, width: number, height: number, resolution: GridResolution): number | null {
   if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return null;
   const col = Math.min(resolution - 1, Math.floor((x / width) * resolution));
@@ -27,13 +61,42 @@ export function selectedPixelCount(selection: GridSelection, dimensions: MaskDim
   const { resolution, cells } = selection;
   let pixels = 0;
   for (let row = 0; row < resolution; row++) {
-    const top = Math.floor((row * dimensions.height) / resolution);
-    const bottom = Math.floor(((row + 1) * dimensions.height) / resolution);
     for (let col = 0; col < resolution; col++) {
       if (!cells[row * resolution + col]) continue;
-      const left = Math.floor((col * dimensions.width) / resolution);
-      const right = Math.floor(((col + 1) * dimensions.width) / resolution);
-      pixels += (right - left) * (bottom - top);
+      const bounds = getGridCellPixelBounds(row, col, resolution, dimensions);
+      pixels += (bounds.right - bounds.left) * (bounds.bottom - bounds.top);
+    }
+  }
+  return pixels;
+}
+
+export function getGridCellPixelBounds(
+  row: number,
+  col: number,
+  resolution: GridResolution,
+  dimensions: MaskDimensions,
+) {
+  return {
+    left: Math.floor((col * dimensions.width) / resolution),
+    right: Math.floor(((col + 1) * dimensions.width) / resolution),
+    top: Math.floor((row * dimensions.height) / resolution),
+    bottom: Math.floor(((row + 1) * dimensions.height) / resolution),
+  };
+}
+
+/** Raw one-byte mask: 0 preserves a pixel and 1 marks it for reconstruction. */
+export function createBinaryMaskPixels(selection: GridSelection, dimensions: MaskDimensions): Uint8Array {
+  if (dimensions.width < 1 || dimensions.height < 1 || dimensions.width * dimensions.height > MASK_LIMITS.maxPixels) {
+    throw new Error("Image dimensions exceed the supported mask size.");
+  }
+  const pixels = new Uint8Array(dimensions.width * dimensions.height);
+  for (let row = 0; row < selection.resolution; row++) {
+    for (let col = 0; col < selection.resolution; col++) {
+      if (!selection.cells[row * selection.resolution + col]) continue;
+      const bounds = getGridCellPixelBounds(row, col, selection.resolution, dimensions);
+      for (let y = bounds.top; y < bounds.bottom; y++) {
+        pixels.fill(1, y * dimensions.width + bounds.left, y * dimensions.width + bounds.right);
+      }
     }
   }
   return pixels;
@@ -66,10 +129,11 @@ export function countSelectedRegions(selection: GridSelection): number {
 }
 
 export function validateSelection(selection: GridSelection, dimensions: MaskDimensions): string | null {
-  if (selectedPixelCount(selection, dimensions) === 0) return "Select at least one damaged grid cell.";
+  if (dimensions.width < 1 || dimensions.height < 1) return "The uploaded image has invalid dimensions.";
   if (dimensions.width * dimensions.height > MASK_LIMITS.maxPixels) {
     return `This image exceeds the ${MASK_LIMITS.maxPixels.toLocaleString()}-pixel processing limit.`;
   }
+  if (selectedPixelCount(selection, dimensions) === 0) return "Select at least one damaged grid cell.";
   const regions = countSelectedRegions(selection);
   if (regions > MASK_LIMITS.maxRegions) {
     return `Selection has ${regions} separate regions; the current limit is ${MASK_LIMITS.maxRegions}.`;
@@ -92,13 +156,10 @@ export async function createBinaryMaskPNG(selection: GridSelection, dimensions: 
   context.fillStyle = "white";
   const { resolution, cells } = selection;
   for (let row = 0; row < resolution; row++) {
-    const top = Math.floor((row * dimensions.height) / resolution);
-    const bottom = Math.floor(((row + 1) * dimensions.height) / resolution);
     for (let col = 0; col < resolution; col++) {
       if (!cells[row * resolution + col]) continue;
-      const left = Math.floor((col * dimensions.width) / resolution);
-      const right = Math.floor(((col + 1) * dimensions.width) / resolution);
-      context.fillRect(left, top, right - left, bottom - top);
+      const bounds = getGridCellPixelBounds(row, col, resolution, dimensions);
+      context.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
     }
   }
 
