@@ -158,7 +158,7 @@ export function DamageGrid({ src, dims, selection, disabled = false, onSelection
             };
             if (event.key in moves) {
               event.preventDefault();
-              setFocusedCell((current) => current + moves[event.key]);
+              setFocusedCell((current) => current + (moves[event.key] ?? 0));
             } else if (["Enter", " "].includes(event.key)) {
               event.preventDefault();
               commit(toggleGridCell(selectionRef.current, focusedCell));
