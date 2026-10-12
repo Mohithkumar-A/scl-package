@@ -112,7 +112,7 @@ export function countSelectedRegions(selection: GridSelection): number {
     const queue = [start];
     visited[start] = 1;
     for (let cursor = 0; cursor < queue.length; cursor++) {
-      const index = queue[cursor];
+      const index = queue[cursor]!;
       const row = Math.floor(index / resolution);
       const col = index % resolution;
       const neighbors = [col > 0 ? index - 1 : -1, col < resolution - 1 ? index + 1 : -1,

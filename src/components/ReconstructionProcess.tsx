@@ -2,6 +2,7 @@ import { Tex } from "./Tex";
 
 const steps = [
   { t: "Model the Image", d: "Represent the damaged image as a vector and identify known pixel information.", m: "x \\in \\mathbb{R}^{n}" },
+  { t: "Mark the Damage", d: "Select damaged grid cells and generate a pixel-exact binary mask.", m: "M \\in \\{0,1\\}^{n}" },
   { t: "Formulate the Problem", d: "Construct the linear system using known pixels and regularization constraints.", m: "Ax \\approx b" },
   { t: "Solve Using Linear Algebra", d: "Solve the regularized least-squares system numerically.", m: "(A^TA+\\lambda L^TL)x = A^Tb" },
   { t: "Reconstruct", d: "Convert the recovered vector back into image form.", m: "x^* \\mapsto I" },
@@ -11,7 +12,7 @@ export function ReconstructionProcess({ activeStep }: { activeStep: number }) {
   return (
     <section className="panel p-5">
       <h2 className="mb-5 text-sm font-semibold">Reconstruction Process</h2>
-      <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2 lg:grid-cols-5">
         {steps.map((s, i) => {
           const active = activeStep > i;
           const segmentDone = activeStep > i + 1;

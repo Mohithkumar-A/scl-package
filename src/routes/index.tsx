@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Download, ImageOff, Sparkles, Info } from "lucide-react";
+import { Download, Sparkles, Info } from "lucide-react";
 import { UploadCard } from "@/components/UploadCard";
+import { DamageGrid } from "@/components/DamageGrid";
+import { createBinaryMaskPNG, createGridSelection, validateSelection } from "@/utils/mask";
 import { ReconstructionSettings } from "@/components/ReconstructionSettings";
 import { ImagePanel } from "@/components/ImagePanel";
 import { CompareSlider } from "@/components/CompareSlider";
@@ -10,7 +12,7 @@ import { MathematicalModel } from "@/components/MathematicalModel";
 import { ResultsCard } from "@/components/ResultsCard";
 import { LoadingState } from "@/components/LoadingState";
 import { reconstructImage, isDemoMode } from "@/services/api";
-import type { ReconstructionMethod, ReconstructionResult, UploadedImage } from "@/types/reconstruction";
+import type { GridSelection, ReconstructionMethod, ReconstructionResult, UploadedImage } from "@/types/reconstruction";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -32,21 +34,27 @@ function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReconstructionResult | null>(null);
   const [view, setView] = useState<"side" | "compare">("side");
+  const [selection, setSelection] = useState<GridSelection>(createGridSelection());
 
-  const onImage = (img: UploadedImage | null) => { setImage(img); setResult(null); setError(null); };
+  const onImage = (img: UploadedImage | null) => { setImage(img); setResult(null); setError(null); setSelection(createGridSelection()); };
 
   const run = async () => {
     if (!image) return;
+    const dims = { width: image.width, height: image.height };
+    const validationError = validateSelection(selection, dims);
+    if (validationError) { setError(validationError); return; }
     setLoading(true); setError(null);
     try {
-      setResult(await reconstructImage({ file: image.file, lambda, method }));
+      const mask = await createBinaryMaskPNG(selection, dims);
+      setResult(await reconstructImage({ file: image.file, mask, maskDimensions: dims, lambda, method }));
     } catch (e) {
       setError(e instanceof Error ? `Reconstruction failed: ${e.message}` : "Reconstruction failed.");
     } finally { setLoading(false); }
   };
 
   const dims = image ? { width: image.width, height: image.height } : null;
-  const step = result ? 4 : loading ? 3 : image ? 1 : 0;
+  const hasSelection = selection.cells.some(Boolean);
+  const step = result ? 5 : loading ? 4 : image && hasSelection ? 2 : image ? 1 : 0;
   const baseName = image?.file.name.replace(/\.[^.]+$/, "") ?? "image";
 
   return (
@@ -60,7 +68,7 @@ function Home() {
         <aside className="flex h-full flex-col gap-5 md:col-span-1 lg:col-span-1">
           <UploadCard image={image} onChange={onImage} />
           <ReconstructionSettings lambda={lambda} setLambda={setLambda} method={method} setMethod={setMethod}
-            canRun={!!image} loading={loading} error={error} onRun={run} />
+            canRun={!!image && hasSelection} loading={loading} error={error} onRun={run} />
         </aside>
 
         <div className="flex h-full flex-col gap-5 md:col-span-2 lg:col-span-1">
@@ -79,8 +87,7 @@ function Home() {
             <CompareSlider before={image.url} after={result.reconstructed_image} />
           ) : (
             <div className="grid gap-5 sm:grid-cols-2">
-              <ImagePanel title="Input Image (Damaged)" src={image?.url} dims={dims}
-                empty={<Empty icon={<ImageOff className="h-8 w-8" />} text="Upload a damaged image to begin" />} />
+              <DamageGrid src={image?.url ?? null} dims={dims} selection={selection} disabled={loading} onSelectionChange={setSelection} />
               <ImagePanel title="Reconstructed Image" src={result?.reconstructed_image} dims={result ? dims : null}
                 empty={<Empty icon={<Sparkles className="h-8 w-8" />} text="Reconstructed image will appear here" />}
                 overlay={loading ? <LoadingState /> : null}
