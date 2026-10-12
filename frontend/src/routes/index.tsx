@@ -12,15 +12,28 @@ import { MathematicalModel } from "@/components/MathematicalModel";
 import { ResultsCard } from "@/components/ResultsCard";
 import { LoadingState } from "@/components/LoadingState";
 import { reconstructImage, isDemoMode } from "@/services/api";
-import type { GridSelection, ReconstructionMethod, ReconstructionResult, UploadedImage } from "@/types/reconstruction";
+import type {
+  GridSelection,
+  ReconstructionMethod,
+  ReconstructionResult,
+  UploadedImage,
+} from "@/types/reconstruction";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Image Inpainting — Linear Algebra Reconstruction" },
-      { name: "description", content: "Reconstruct damaged image regions using least squares and Tikhonov regularization." },
+      {
+        name: "description",
+        content:
+          "Reconstruct damaged image regions using least squares and Tikhonov regularization.",
+      },
       { property: "og:title", content: "Image Inpainting — Linear Algebra Reconstruction" },
-      { property: "og:description", content: "Reconstruct damaged image regions using least squares and Tikhonov regularization." },
+      {
+        property: "og:description",
+        content:
+          "Reconstruct damaged image regions using least squares and Tikhonov regularization.",
+      },
     ],
   }),
   component: Home,
@@ -36,20 +49,35 @@ function Home() {
   const [view, setView] = useState<"side" | "compare">("side");
   const [selection, setSelection] = useState<GridSelection>(createGridSelection());
 
-  const onImage = (img: UploadedImage | null) => { setImage(img); setResult(null); setError(null); setSelection(createGridSelection()); };
+  const onImage = (img: UploadedImage | null) => {
+    setImage(img);
+    setResult(null);
+    setError(null);
+    setSelection(createGridSelection());
+  };
 
   const run = async () => {
     if (!image) return;
     const dims = { width: image.width, height: image.height };
     const validationError = validateSelection(selection, dims);
-    if (validationError) { setError(validationError); return; }
-    setLoading(true); setError(null);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setLoading(true);
+    setError(null);
     try {
       const mask = await createBinaryMaskPNG(selection, dims);
-      setResult(await reconstructImage({ file: image.file, mask, maskDimensions: dims, lambda, method }));
+      setResult(
+        await reconstructImage({ file: image.file, mask, maskDimensions: dims, lambda, method }),
+      );
     } catch (e) {
-      setError(e instanceof Error ? `Reconstruction failed: ${e.message}` : "Reconstruction failed.");
-    } finally { setLoading(false); }
+      setError(
+        e instanceof Error ? `Reconstruction failed: ${e.message}` : "Reconstruction failed.",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const dims = image ? { width: image.width, height: image.height } : null;
@@ -61,22 +89,35 @@ function Home() {
     <main className="mx-auto w-full max-w-[1920px] px-4 py-6 lg:px-6">
       {isDemoMode && (
         <div className="mb-5 flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent">
-          <Info className="h-4 w-4 shrink-0" /> Demo mode: no backend configured (set VITE_API_URL). Results are simulated for demonstration.
+          <Info className="h-4 w-4 shrink-0" /> Demo mode: no backend configured (set VITE_API_URL).
+          Results are simulated for demonstration.
         </div>
       )}
       <div className="panel grid items-stretch gap-5 p-5 lg:grid-cols-[22fr_58fr_20fr] md:grid-cols-2">
         <aside className="flex h-full flex-col gap-5 md:col-span-1 lg:col-span-1">
           <UploadCard image={image} onChange={onImage} />
-          <ReconstructionSettings lambda={lambda} setLambda={setLambda} method={method} setMethod={setMethod}
-            canRun={!!image && hasSelection} loading={loading} error={error} onRun={run} />
+          <ReconstructionSettings
+            lambda={lambda}
+            setLambda={setLambda}
+            method={method}
+            setMethod={setMethod}
+            canRun={!!image && hasSelection}
+            loading={loading}
+            error={error}
+            onRun={run}
+          />
         </aside>
 
         <div className="flex h-full flex-col gap-5 md:col-span-2 lg:col-span-1">
           <div className="flex justify-end">
             <div className="inline-flex rounded-lg border border-border bg-card p-1 text-xs">
               {(["side", "compare"] as const).map((v) => (
-                <button key={v} onClick={() => setView(v)} disabled={v === "compare" && !result}
-                  className={`rounded-md px-3 py-1.5 transition-colors disabled:opacity-40 ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  disabled={v === "compare" && !result}
+                  className={`rounded-md px-3 py-1.5 transition-colors disabled:opacity-40 ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
                   {v === "side" ? "Side by Side" : "Compare"}
                 </button>
               ))}
@@ -87,16 +128,36 @@ function Home() {
             <CompareSlider before={image.url} after={result.reconstructed_image} />
           ) : (
             <div className="grid gap-5 sm:grid-cols-2">
-              <DamageGrid src={image?.url ?? null} dims={dims} selection={selection} disabled={loading} onSelectionChange={setSelection} />
-              <ImagePanel title="Reconstructed Image" src={result?.reconstructed_image} dims={result ? dims : null}
-                empty={<Empty icon={<Sparkles className="h-8 w-8" />} text="Reconstructed image will appear here" />}
+              <DamageGrid
+                src={image?.url ?? null}
+                dims={dims}
+                selection={selection}
+                disabled={loading}
+                onSelectionChange={setSelection}
+              />
+              <ImagePanel
+                title="Reconstructed Image"
+                src={result?.reconstructed_image}
+                dims={result ? dims : null}
+                empty={
+                  <Empty
+                    icon={<Sparkles className="h-8 w-8" />}
+                    text="Reconstructed image will appear here"
+                  />
+                }
                 overlay={loading ? <LoadingState /> : null}
-                footer={result && (
-                  <a href={result.reconstructed_image} download={`${baseName}_reconstructed.png`}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary/60">
-                    <Download className="h-3.5 w-3.5" /> Download Image
-                  </a>
-                )} />
+                footer={
+                  result && (
+                    <a
+                      href={result.reconstructed_image}
+                      download={`${baseName}_reconstructed.png`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary/60"
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download Image
+                    </a>
+                  )
+                }
+              />
             </div>
           )}
 

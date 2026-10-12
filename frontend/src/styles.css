@@ -58,12 +58,18 @@
   --border: oklch(0.32 0.04 260 / 70%);
   --input: oklch(0.32 0.04 260);
   --ring: oklch(0.64 0.17 255);
-  --gradient-page: radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.3 0.08 260 / 55%), transparent 70%);
+  --gradient-page: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    oklch(0.3 0.08 260 / 55%),
+    transparent 70%
+  );
   --shadow-card: 0 8px 24px -12px oklch(0.05 0.02 260 / 70%);
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
+  * {
+    border-color: var(--color-border);
+  }
   body {
     background-color: var(--color-background);
     background-image: var(--gradient-page);
@@ -71,7 +77,9 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
   }
-  .katex { color: var(--color-foreground); }
+  .katex {
+    color: var(--color-foreground);
+  }
 }
 
 @utility panel {
@@ -95,7 +103,9 @@
   accent-color: var(--color-primary);
   &::-webkit-slider-thumb {
     appearance: none;
-    width: 16px; height: 16px; border-radius: 999px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
     background: var(--color-primary);
     border: 2px solid var(--color-primary-foreground);
     cursor: pointer;

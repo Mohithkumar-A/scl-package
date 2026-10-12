@@ -9,7 +9,11 @@ export function createGridSelection(resolution: GridResolution = 20): GridSelect
   return { resolution, cells: Array(resolution * resolution).fill(false) };
 }
 
-export function toggleGridCell(selection: GridSelection, index: number, value?: boolean): GridSelection {
+export function toggleGridCell(
+  selection: GridSelection,
+  index: number,
+  value?: boolean,
+): GridSelection {
   if (index < 0 || index >= selection.cells.length) return selection;
   const cells = selection.cells.slice();
   cells[index] = value ?? !cells[index];
@@ -17,7 +21,10 @@ export function toggleGridCell(selection: GridSelection, index: number, value?: 
 }
 
 /** Remap selected-cell coverage when the grid resolution changes. */
-export function remapGridSelection(selection: GridSelection, resolution: GridResolution): GridSelection {
+export function remapGridSelection(
+  selection: GridSelection,
+  resolution: GridResolution,
+): GridSelection {
   if (selection.resolution === resolution) return selection;
   const oldResolution = selection.resolution;
   const cells = Array(resolution * resolution).fill(false) as boolean[];
@@ -50,7 +57,13 @@ export function remapGridSelection(selection: GridSelection, resolution: GridRes
   return { resolution, cells };
 }
 
-export function mapGridCellAtPoint(x: number, y: number, width: number, height: number, resolution: GridResolution): number | null {
+export function mapGridCellAtPoint(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  resolution: GridResolution,
+): number | null {
   if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return null;
   const col = Math.min(resolution - 1, Math.floor((x / width) * resolution));
   const row = Math.min(resolution - 1, Math.floor((y / height) * resolution));
@@ -85,8 +98,15 @@ export function getGridCellPixelBounds(
 }
 
 /** Raw one-byte mask: 0 preserves a pixel and 1 marks it for reconstruction. */
-export function createBinaryMaskPixels(selection: GridSelection, dimensions: MaskDimensions): Uint8Array {
-  if (dimensions.width < 1 || dimensions.height < 1 || dimensions.width * dimensions.height > MASK_LIMITS.maxPixels) {
+export function createBinaryMaskPixels(
+  selection: GridSelection,
+  dimensions: MaskDimensions,
+): Uint8Array {
+  if (
+    dimensions.width < 1 ||
+    dimensions.height < 1 ||
+    dimensions.width * dimensions.height > MASK_LIMITS.maxPixels
+  ) {
     throw new Error("Image dimensions exceed the supported mask size.");
   }
   const pixels = new Uint8Array(dimensions.width * dimensions.height);
@@ -115,8 +135,12 @@ export function countSelectedRegions(selection: GridSelection): number {
       const index = queue[cursor]!;
       const row = Math.floor(index / resolution);
       const col = index % resolution;
-      const neighbors = [col > 0 ? index - 1 : -1, col < resolution - 1 ? index + 1 : -1,
-        row > 0 ? index - resolution : -1, row < resolution - 1 ? index + resolution : -1];
+      const neighbors = [
+        col > 0 ? index - 1 : -1,
+        col < resolution - 1 ? index + 1 : -1,
+        row > 0 ? index - resolution : -1,
+        row < resolution - 1 ? index + resolution : -1,
+      ];
       for (const neighbor of neighbors) {
         if (neighbor >= 0 && cells[neighbor] && !visited[neighbor]) {
           visited[neighbor] = 1;
@@ -128,12 +152,17 @@ export function countSelectedRegions(selection: GridSelection): number {
   return regions;
 }
 
-export function validateSelection(selection: GridSelection, dimensions: MaskDimensions): string | null {
-  if (dimensions.width < 1 || dimensions.height < 1) return "The uploaded image has invalid dimensions.";
+export function validateSelection(
+  selection: GridSelection,
+  dimensions: MaskDimensions,
+): string | null {
+  if (dimensions.width < 1 || dimensions.height < 1)
+    return "The uploaded image has invalid dimensions.";
   if (dimensions.width * dimensions.height > MASK_LIMITS.maxPixels) {
     return `This image exceeds the ${MASK_LIMITS.maxPixels.toLocaleString()}-pixel processing limit.`;
   }
-  if (selectedPixelCount(selection, dimensions) === 0) return "Select at least one damaged grid cell.";
+  if (selectedPixelCount(selection, dimensions) === 0)
+    return "Select at least one damaged grid cell.";
   const regions = countSelectedRegions(selection);
   if (regions > MASK_LIMITS.maxRegions) {
     return `Selection has ${regions} separate regions; the current limit is ${MASK_LIMITS.maxRegions}.`;
@@ -141,8 +170,15 @@ export function validateSelection(selection: GridSelection, dimensions: MaskDime
   return null;
 }
 
-export async function createBinaryMaskPNG(selection: GridSelection, dimensions: MaskDimensions): Promise<Blob> {
-  if (dimensions.width < 1 || dimensions.height < 1 || dimensions.width * dimensions.height > MASK_LIMITS.maxPixels) {
+export async function createBinaryMaskPNG(
+  selection: GridSelection,
+  dimensions: MaskDimensions,
+): Promise<Blob> {
+  if (
+    dimensions.width < 1 ||
+    dimensions.height < 1 ||
+    dimensions.width * dimensions.height > MASK_LIMITS.maxPixels
+  ) {
     throw new Error("Image dimensions exceed the supported mask size.");
   }
   const canvas = document.createElement("canvas");
@@ -159,7 +195,12 @@ export async function createBinaryMaskPNG(selection: GridSelection, dimensions: 
     for (let col = 0; col < resolution; col++) {
       if (!cells[row * resolution + col]) continue;
       const bounds = getGridCellPixelBounds(row, col, resolution, dimensions);
-      context.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+      context.fillRect(
+        bounds.left,
+        bounds.top,
+        bounds.right - bounds.left,
+        bounds.bottom - bounds.top,
+      );
     }
   }
 

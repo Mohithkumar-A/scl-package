@@ -12,7 +12,9 @@ const vars: [string, string][] = [
 export function MathematicalModel() {
   return (
     <section className="panel p-5">
-      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><Sigma className="h-4 w-4 text-accent" /> Mathematical Model</h2>
+      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+        <Sigma className="h-4 w-4 text-accent" /> Mathematical Model
+      </h2>
       <div className="overflow-x-auto rounded-xl border border-border bg-surface px-2 py-3 text-sm">
         <Tex block math="\min_{x}\; \|Ax-b\|_2^2 + \lambda\|Lx\|_2^2" />
       </div>
@@ -23,7 +25,9 @@ export function MathematicalModel() {
       <ul className="mt-4 space-y-2">
         {vars.map(([s, d]) => (
           <li key={s} className="flex gap-3 text-xs">
-            <span className="w-5 shrink-0 text-primary"><Tex math={s} /></span>
+            <span className="w-5 shrink-0 text-primary">
+              <Tex math={s} />
+            </span>
             <span className="text-muted-foreground">{d}</span>
           </li>
         ))}

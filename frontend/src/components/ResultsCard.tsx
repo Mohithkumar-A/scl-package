@@ -14,8 +14,15 @@ export function ResultsCard({ result }: { result: ReconstructionResult | null })
       <div className="grid grid-cols-2 gap-2.5">
         {items.map(({ k, v, I }) => (
           <div key={k} className="rounded-xl border border-border bg-surface p-3">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><I className="h-3.5 w-3.5 text-accent" />{k}</div>
-            <div className={`mt-1.5 font-mono text-base font-semibold ${result ? "text-foreground" : "text-muted-foreground"}`}>{v}</div>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <I className="h-3.5 w-3.5 text-accent" />
+              {k}
+            </div>
+            <div
+              className={`mt-1.5 font-mono text-base font-semibold ${result ? "text-foreground" : "text-muted-foreground"}`}
+            >
+              {v}
+            </div>
           </div>
         ))}
       </div>

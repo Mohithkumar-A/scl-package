@@ -1,7 +1,7 @@
 import type { ReconstructionRequest, ReconstructionResult } from "@/types/reconstruction";
 import { mockReconstruct } from "./mock";
 
-export const API_URL: string | undefined = import.meta.env['VITE_API_URL'];
+export const API_URL: string | undefined = import.meta.env["VITE_API_URL"];
 export const isDemoMode = !API_URL;
 
 /** POST /api/reconstruct — multipart: image, lambda, method */
@@ -14,7 +14,10 @@ export async function reconstructImage(req: ReconstructionRequest): Promise<Reco
   form.append("lambda", String(req.lambda));
   form.append("method", req.method);
 
-  const res = await fetch(`${API_URL!.replace(/\/$/, "")}/api/reconstruct`, { method: "POST", body: form });
+  const res = await fetch(`${API_URL!.replace(/\/$/, "")}/api/reconstruct`, {
+    method: "POST",
+    body: form,
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `Server responded with ${res.status}`);
