@@ -59,7 +59,7 @@ describe("countSelectedRegions", () => {
     s = toggleGridCell(s, 1); // adjacent to 0
     s = toggleGridCell(s, 22); // separate
     expect(countSelectedRegions(s)).toBe(2);
-    s = toggleGridCell(s, 11); // diagonal to 0 — still separate (4-connected)
+    s = toggleGridCell(s, 33); // diagonal to 22 — still separate (4-connected)
     expect(countSelectedRegions(s)).toBe(3);
   });
 });

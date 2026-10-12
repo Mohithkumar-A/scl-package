@@ -87,7 +87,7 @@ function Home() {
             <CompareSlider before={image.url} after={result.reconstructed_image} />
           ) : (
             <div className="grid gap-5 sm:grid-cols-2">
-              <DamageGrid src={image?.url} dims={dims} selection={selection} disabled={loading} onSelectionChange={setSelection} />
+              <DamageGrid src={image?.url ?? null} dims={dims} selection={selection} disabled={loading} onSelectionChange={setSelection} />
               <ImagePanel title="Reconstructed Image" src={result?.reconstructed_image} dims={result ? dims : null}
                 empty={<Empty icon={<Sparkles className="h-8 w-8" />} text="Reconstructed image will appear here" />}
                 overlay={loading ? <LoadingState /> : null}
