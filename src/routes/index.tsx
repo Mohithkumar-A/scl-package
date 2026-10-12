@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Download, ImageOff, Sparkles, Info } from "lucide-react";
 import { UploadCard } from "@/components/UploadCard";
+import { DamageGrid } from "@/components/DamageGrid";
+import { createBinaryMaskPNG, createGridSelection, validateSelection } from "@/utils/mask";
 import { ReconstructionSettings } from "@/components/ReconstructionSettings";
 import { ImagePanel } from "@/components/ImagePanel";
 import { CompareSlider } from "@/components/CompareSlider";
@@ -10,7 +12,7 @@ import { MathematicalModel } from "@/components/MathematicalModel";
 import { ResultsCard } from "@/components/ResultsCard";
 import { LoadingState } from "@/components/LoadingState";
 import { reconstructImage, isDemoMode } from "@/services/api";
-import type { ReconstructionMethod, ReconstructionResult, UploadedImage } from "@/types/reconstruction";
+import type { GridSelection, ReconstructionMethod, ReconstructionResult, UploadedImage } from "@/types/reconstruction";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -32,14 +34,19 @@ function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReconstructionResult | null>(null);
   const [view, setView] = useState<"side" | "compare">("side");
+  const [selection, setSelection] = useState<GridSelection>(createGridSelection());
 
-  const onImage = (img: UploadedImage | null) => { setImage(img); setResult(null); setError(null); };
+  const onImage = (img: UploadedImage | null) => { setImage(img); setResult(null); setError(null); setSelection(createGridSelection()); };
 
   const run = async () => {
     if (!image) return;
+    const dims = { width: image.width, height: image.height };
+    const validationError = validateSelection(selection, dims);
+    if (validationError) { setError(validationError); return; }
     setLoading(true); setError(null);
     try {
-      setResult(await reconstructImage({ file: image.file, lambda, method }));
+      const mask = await createBinaryMaskPNG(selection, dims);
+      setResult(await reconstructImage({ file: image.file, mask, maskDimensions: dims, lambda, method }));
     } catch (e) {
       setError(e instanceof Error ? `Reconstruction failed: ${e.message}` : "Reconstruction failed.");
     } finally { setLoading(false); }
