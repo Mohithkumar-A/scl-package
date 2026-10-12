@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Download, ImageOff, Sparkles, Info } from "lucide-react";
+import { Download, Sparkles, Info } from "lucide-react";
 import { UploadCard } from "@/components/UploadCard";
 import { DamageGrid } from "@/components/DamageGrid";
 import { createBinaryMaskPNG, createGridSelection, validateSelection } from "@/utils/mask";
