@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Eraser, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { GridResolution, GridSelection, MaskDimensions } from "@/types/reconstruction";
-import { mapGridCellAtPoint, remapGridSelection, selectedPixelCount, toggleGridCell } from "@/utils/mask";
+import { createGridSelection, mapGridCellAtPoint, remapGridSelection, selectedPixelCount, toggleGridCell } from "@/utils/mask";
 
 interface Props {
   src?: string | null;
