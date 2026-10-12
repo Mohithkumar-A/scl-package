@@ -10,6 +10,7 @@ export async function reconstructImage(req: ReconstructionRequest): Promise<Reco
 
   const form = new FormData();
   form.append("image", req.file);
+  form.append("mask", req.mask, "mask.png");
   form.append("lambda", String(req.lambda));
   form.append("method", req.method);
 
