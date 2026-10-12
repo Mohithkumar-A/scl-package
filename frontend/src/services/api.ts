@@ -19,8 +19,19 @@ export async function reconstructImage(req: ReconstructionRequest): Promise<Reco
     body: form,
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `Server responded with ${res.status}`);
+    let errorMessage = `Server responded with ${res.status}`;
+    try {
+      const errorJson = await res.json();
+      if (errorJson?.error?.message) {
+        errorMessage = errorJson.error.message;
+      } else if (typeof errorJson?.detail === "string") {
+        errorMessage = errorJson.detail;
+      }
+    } catch {
+      const text = await res.text().catch(() => "");
+      if (text) errorMessage = text;
+    }
+    throw new Error(errorMessage);
   }
   const data = (await res.json()) as ReconstructionResult;
   // Accept raw base64 as well as URLs/data URLs

@@ -21,10 +21,20 @@ export interface ReconstructionRequest {
 
 export interface ReconstructionResult {
   reconstructed_image: string; // URL or data URL
-  psnr: number;
-  ssim: number;
+  psnr: number | null;
+  ssim: number | null;
   reconstruction_error: number;
   time_taken: number;
+  iterations?: number;
+  converged?: boolean;
+  final_residual?: number;
+  masked_pixels?: number;
+  masked_percentage?: number;
+  connected_regions?: number;
+  method?: string;
+  lambda_value?: number;
+  image_width?: number;
+  image_height?: number;
 }
 
 export interface UploadedImage {

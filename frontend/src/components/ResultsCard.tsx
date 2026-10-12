@@ -3,14 +3,37 @@ import type { ReconstructionResult } from "@/types/reconstruction";
 
 export function ResultsCard({ result }: { result: ReconstructionResult | null }) {
   const items = [
-    { k: "PSNR", v: result ? `${result.psnr} dB` : "—", I: Activity },
-    { k: "SSIM", v: result ? String(result.ssim) : "—", I: Gauge },
-    { k: "Reconstruction Error", v: result ? String(result.reconstruction_error) : "—", I: Sigma },
-    { k: "Time Taken", v: result ? `${result.time_taken} s` : "—", I: Timer },
+    {
+      k: "PSNR",
+      v: result ? (result.psnr != null ? `${result.psnr} dB` : "N/A (No Ref)") : "—",
+      I: Activity,
+    },
+    {
+      k: "SSIM",
+      v: result ? (result.ssim != null ? String(result.ssim) : "N/A (No Ref)") : "—",
+      I: Gauge,
+    },
+    {
+      k: "Linear System Error",
+      v: result ? String(result.reconstruction_error) : "—",
+      I: Sigma,
+    },
+    {
+      k: "Time Taken",
+      v: result ? `${result.time_taken} s` : "—",
+      I: Timer,
+    },
   ];
   return (
     <section className="panel p-5">
-      <h2 className="mb-4 text-sm font-semibold">Results</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Results</h2>
+        {result?.iterations != null && (
+          <span className="rounded-md border border-border bg-surface px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+            {result.iterations} iters · {result.converged ? "Converged" : "Max iters"}
+          </span>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2.5">
         {items.map(({ k, v, I }) => (
           <div key={k} className="rounded-xl border border-border bg-surface p-3">

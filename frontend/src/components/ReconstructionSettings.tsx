@@ -60,18 +60,18 @@ export function ReconstructionSettings({
         Controls the trade-off between data fidelity and smoothness.
       </p>
 
-      <label htmlFor="method" className="mt-5 mb-2 block text-sm">
-        Method
-      </label>
-      <select
+      <div className="mt-5 mb-2 flex items-center justify-between text-sm">
+        <label htmlFor="method">Method</label>
+        <span className="rounded-md border border-border bg-surface px-2 py-0.5 font-mono text-xs text-muted-foreground">
+          Linear System
+        </span>
+      </div>
+      <div
         id="method"
-        value={method}
-        onChange={(e) => setMethod(e.target.value as ReconstructionMethod)}
-        className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+        className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm font-medium text-foreground"
       >
-        <option value="tikhonov">Tikhonov Regularization</option>
-        <option value="smoothness">Smoothness Regularization</option>
-      </select>
+        Tikhonov Regularization (Smoothness-Based)
+      </div>
 
       <button
         onClick={onRun}

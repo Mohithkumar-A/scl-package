@@ -1,51 +1,63 @@
-# SCL Package
+# Image Inpainting — Linear Algebra-Based Restoration
 
-Sparse Computed Tomography Reconstruction Web Platform.
+A complete, fullstack scientific computing application for image inpainting using **Tikhonov Regularization** and transparent iterative linear algebra.
 
-This project was built with [Lovable](https://lovable.dev).
+## Project Architecture
 
-## Project Layout
+```
+scl-package/
+├── frontend/               # React 19, TypeScript, Vite & Tailwind CSS web dashboard
+│   ├── src/                # Components (DamageGrid, ImagePanel), Routes, Mask Utilities
+│   └── package.json        # Frontend configuration and test scripts
+├── backend/                # Python FastAPI numerical computing backend
+│   ├── app/                # Main app, config, API routes, Tikhonov math, and Gauss-Seidel solver
+│   ├── tests/              # 25 automated pytest tests
+│   └── requirements.txt    # FastAPI, Uvicorn, NumPy, Pillow, Pytest
+├── package.json            # Root convenience scripts to run frontend and backend
+└── README.md
+```
 
-- `frontend/`: TanStack Start, React 19, Vite, and Tailwind CSS web application.
-  - `frontend/src/`: Application components, routes, hooks, services, and utilities.
-  - `frontend/public/`: Static assets.
-  - `frontend/.env.example`: Template for environment variables (e.g. `VITE_API_URL`).
-- `roadmap.md`: Project milestones and tasks.
-- `package.json`: Root runner scripts to manage the frontend.
+## Running the Project
 
-## Local Development
+### 1. Backend (Python + FastAPI)
+
+Prerequisites: Python 3.9+ (Python 3.11 recommended).
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate       # macOS / Linux
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The backend starts at `http://localhost:8000`. API docs available at `http://localhost:8000/docs`.
+
+### 2. Frontend (React + Vite)
 
 Prerequisites: Node.js (v20+) and npm.
 
-### Quick Start (from root)
-
-```sh
-# Dependencies are pre-installed in frontend/
-npm run dev
-```
-
-### Or run directly inside frontend directory
-
-```sh
+```bash
 cd frontend
+# (Dependencies already installed)
 npm run dev
 ```
 
-The application runs on Vite dev server (typically http://localhost:3000 or http://localhost:5173).
-
-### Environment Configuration
-
-By default, if `VITE_API_URL` is omitted, the frontend runs in **Demo Mode** using simulated reconstruction responses.
-To connect to a custom backend, configure `frontend/.env`:
-
+Connect the frontend to the backend by configuring `frontend/.env`:
 ```env
 VITE_API_URL=http://localhost:8000
 ```
+(If `VITE_API_URL` is omitted, the frontend falls back to client-side demo mode).
 
-### Available Scripts
+### 3. Running All Tests
 
-- `npm run dev`: Start the local development server (ready to run when you want).
-- `npm run build`: Build for production.
-- `npm run test`: Run the test suite (Vitest).
-- `npm run lint`: Run ESLint checks.
+- **Backend tests (25 tests)**:
+  ```bash
+  cd backend && pytest tests/
+  ```
+- **Frontend tests (10 tests)**:
+  ```bash
+  cd frontend && npm run test
+  ```
+
 

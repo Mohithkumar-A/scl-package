@@ -5,9 +5,12 @@
   "description": "SCL Package - Sparse Computed Tomography reconstruction web platform",
   "scripts": {
     "dev": "npm --prefix frontend run dev",
+    "server": "uvicorn --app-dir backend app.main:app --host 0.0.0.0 --port 8000 --reload",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
     "test": "npm --prefix frontend run test",
+    "test:backend": "pytest backend/tests",
+    "test:all": "npm --prefix frontend run test && pytest backend/tests",
     "test:watch": "npm --prefix frontend run test:watch",
     "lint": "npm --prefix frontend run lint",
     "format": "npm --prefix frontend run format"
