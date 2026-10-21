@@ -1,63 +1,73 @@
-# Image Inpainting — Linear Algebra-Based Restoration
+# Image Inpainting — Linear Algebra Restoration
 
-A complete, fullstack scientific computing application for image inpainting using **Tikhonov Regularization** and transparent iterative linear algebra.
+A full-stack image restoration demo. The frontend lets you paint damaged regions on an uploaded image; the FastAPI backend reconstructs the marked pixels with a Tikhonov-regularized discrete Laplacian and an iterative solver.
 
-## Project Architecture
+## Project layout
 
-```
-scl-package/
-├── frontend/               # React 19, TypeScript, Vite & Tailwind CSS web dashboard
-│   ├── src/                # Components (DamageGrid, ImagePanel), Routes, Mask Utilities
-│   └── package.json        # Frontend configuration and test scripts
-├── backend/                # Python FastAPI numerical computing backend
-│   ├── app/                # Main app, config, API routes, Tikhonov math, and Gauss-Seidel solver
-│   ├── tests/              # 25 automated pytest tests
-│   └── requirements.txt    # FastAPI, Uvicorn, NumPy, Pillow, Pytest
-├── package.json            # Root convenience scripts to run frontend and backend
-└── README.md
-```
+- `frontend/` — React, TypeScript, Vite, brush-mask utilities, and UI tests.
+- `backend/` — FastAPI API, image and mask validation, numerical solver, and pytest suite.
+- `assets/` — Sample original and reconstructed images. The pair is `Aged Alpine Lake Mountain Vista.png` and `Aged Alpine Lake Mountain Vista_reconstructed.png`.
 
-## Running the Project
+## Run locally
 
-### 1. Backend (Python + FastAPI)
+Requirements: Node.js 20+, npm, and Python 3.9+ (Python 3.11 recommended).
 
-Prerequisites: Python 3.9+ (Python 3.11 recommended).
+Start the backend in one terminal:
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate       # macOS / Linux
+# .venv\Scripts\activate        # Windows PowerShell
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-The backend starts at `http://localhost:8000`. API docs available at `http://localhost:8000/docs`.
-
-### 2. Frontend (React + Vite)
-
-Prerequisites: Node.js (v20+) and npm.
+Start the frontend in another terminal:
 
 ```bash
 cd frontend
-# (Dependencies already installed)
+npm install
 npm run dev
 ```
 
-Connect the frontend to the backend by configuring `frontend/.env`:
-```env
-VITE_API_URL=http://localhost:8000
+By default, the frontend calls `http://localhost:8000`. Set `VITE_API_URL` in `frontend/.env` to use a different backend URL. The Vite dev server also proxies `/api` to `http://127.0.0.1:8000`.
+
+To run the UI without a backend, set `VITE_DEMO_MODE=true` in `frontend/.env`. Demo mode applies a visual blur simulation and returns illustrative metrics; it does not run the reconstruction solver and its metrics are not scientific results. Restart the dev server after changing environment variables.
+
+## Use the inpainting workspace
+
+1. Upload an image and paint over damaged pixels. Use Erase to correct the mask; undo, redo, clear, zoom, and pan controls are available in the workspace.
+2. Run reconstruction. The interface currently uses a fixed lambda value of `0.01`; the API accepts lambda as a request parameter.
+3. Review the output with the comparison slider or side-by-side view. Further passes can be painted on the current result; “Revert to Original” resets the working image.
+
+Brush masks are stored at the uploaded image's intrinsic pixel dimensions. Zoom and display sizing only affect rendering and pointer-coordinate mapping, not mask export dimensions.
+
+## Default backend limits
+
+The backend defaults to images no larger than 4096 × 4096 pixels (16,777,216 total pixels), at most 2,000,000 masked pixels, 85% masked coverage, 100 connected regions, and 1,000,000 pixels per connected region. Limits can be changed with the backend environment variables documented in [`backend/.env.example`](backend/.env.example). Frontend checks mirror the default image and mask pixel limits; the backend remains authoritative if deployed settings differ.
+
+The API defaults to `CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173`. Configure this comma-separated allowlist for the origins that host your frontend.
+
+## API and verification
+
+- Health: `GET http://localhost:8000/api/health`
+- Reconstruction: `POST http://localhost:8000/api/reconstruct` using multipart fields `image`, `mask`, `lambda`, and `method`.
+- Interactive API docs: `http://localhost:8000/docs`
+
+Run frontend checks from the repository root. For backend tests, activate the backend virtual environment first:
+
+```bash
+npm test
+npm run build
+npm run lint
 ```
-(If `VITE_API_URL` is omitted, the frontend falls back to client-side demo mode).
 
-### 3. Running All Tests
+```bash
+source backend/.venv/bin/activate
+npm run test:backend
+```
 
-- **Backend tests (25 tests)**:
-  ```bash
-  cd backend && pytest tests/
-  ```
-- **Frontend tests (10 tests)**:
-  ```bash
-  cd frontend && npm run test
-  ```
+The current suites contain 22 frontend tests and 29 backend tests. Backend responses report PSNR and SSIM as `null` because a clean reference image is not available; they include solver residuals, iteration/convergence information, and changed-pixel diagnostics instead.
 
-
+See [`backend/README.md`](backend/README.md) for the API contract, numerical formulation, backend configuration, and detailed test coverage.

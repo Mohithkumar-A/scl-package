@@ -1,5 +1,6 @@
 export type ReconstructionMethod = "tikhonov" | "smoothness";
 export type GridResolution = 10 | 20 | 40;
+export type MaskTool = "brush" | "grid";
 
 export interface GridSelection {
   resolution: GridResolution;
@@ -35,6 +36,7 @@ export interface ReconstructionResult {
   lambda_value?: number;
   image_width?: number;
   image_height?: number;
+  changed_pixels?: number;
 }
 
 export interface UploadedImage {

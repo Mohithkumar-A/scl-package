@@ -1,9 +1,128 @@
 import type { GridResolution, GridSelection, MaskDimensions } from "@/types/reconstruction";
 
 export const MASK_LIMITS = {
-  maxPixels: 24_000_000,
+  maxWidth: 4096,
+  maxHeight: 4096,
+  maxImagePixels: 16_777_216,
+  maxMaskedPixels: 2_000_000,
+  maxMaskedPercentage: 85,
   maxRegions: 100,
 } as const;
+
+function imageDimensionsError(dimensions: MaskDimensions): string | null {
+  if (dimensions.width < 1 || dimensions.height < 1) {
+    return "The uploaded image has invalid dimensions.";
+  }
+  if (dimensions.width > MASK_LIMITS.maxWidth || dimensions.height > MASK_LIMITS.maxHeight) {
+    return `Image dimensions cannot exceed ${MASK_LIMITS.maxWidth} × ${MASK_LIMITS.maxHeight} pixels.`;
+  }
+  if (dimensions.width * dimensions.height > MASK_LIMITS.maxImagePixels) {
+    return `This image exceeds the ${MASK_LIMITS.maxImagePixels.toLocaleString()}-pixel processing limit.`;
+  }
+  return null;
+}
+
+export type BrushOperation = "paint" | "erase";
+
+/** Owns an intrinsic-resolution brush mask and its undo/redo history. */
+export class BrushMaskState {
+  readonly canvas: HTMLCanvasElement;
+  private readonly undoStack: ImageData[] = [];
+  private readonly redoStack: ImageData[] = [];
+  private readonly maxHistorySnapshots = 30;
+  private readonly maxHistoryBytes = 128 * 1024 * 1024;
+
+  constructor(readonly dimensions: MaskDimensions) {
+    this.canvas = document.createElement("canvas");
+    this.canvas.width = dimensions.width;
+    this.canvas.height = dimensions.height;
+  }
+
+  get canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  get canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  beginStroke(x: number, y: number, width: number, operation: BrushOperation): void {
+    const context = this.context();
+    this.saveUndo(context);
+    context.globalCompositeOperation = operation === "paint" ? "source-over" : "destination-out";
+    if (operation === "paint") context.fillStyle = "white";
+    context.beginPath();
+    context.arc(x, y, width / 2, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  continueStroke(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    width: number,
+    operation: BrushOperation,
+  ): void {
+    const context = this.context();
+    context.globalCompositeOperation = operation === "paint" ? "source-over" : "destination-out";
+    if (operation === "paint") context.strokeStyle = "white";
+    context.lineWidth = width;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    context.moveTo(fromX, fromY);
+    context.lineTo(toX, toY);
+    context.stroke();
+  }
+
+  undo(): boolean {
+    const previous = this.undoStack.pop();
+    if (!previous) return false;
+    const context = this.context();
+    this.redoStack.push(context.getImageData(0, 0, this.canvas.width, this.canvas.height));
+    context.putImageData(previous, 0, 0);
+    return true;
+  }
+
+  redo(): boolean {
+    const next = this.redoStack.pop();
+    if (!next) return false;
+    const context = this.context();
+    this.pushUndo(context.getImageData(0, 0, this.canvas.width, this.canvas.height));
+    context.putImageData(next, 0, 0);
+    return true;
+  }
+
+  clear(): void {
+    const context = this.context();
+    this.saveUndo(context);
+    context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  countPixels(): number {
+    return countMaskCanvasPixels(this.canvas, this.dimensions);
+  }
+
+  private context(): CanvasRenderingContext2D {
+    const context = this.canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare the damage mask.");
+    return context;
+  }
+
+  private saveUndo(context: CanvasRenderingContext2D): void {
+    this.pushUndo(context.getImageData(0, 0, this.canvas.width, this.canvas.height));
+    this.redoStack.length = 0;
+  }
+
+  private pushUndo(snapshot: ImageData): void {
+    const bytesPerSnapshot = this.dimensions.width * this.dimensions.height * 4;
+    const memoryBoundedLimit = Math.max(1, Math.floor(this.maxHistoryBytes / bytesPerSnapshot));
+    const historyLimit = Math.min(this.maxHistorySnapshots, memoryBoundedLimit);
+    if (this.undoStack.length >= historyLimit) this.undoStack.shift();
+    this.undoStack.push(snapshot);
+  }
+}
 
 export function createGridSelection(resolution: GridResolution = 20): GridSelection {
   return { resolution, cells: Array(resolution * resolution).fill(false) };
@@ -102,13 +221,8 @@ export function createBinaryMaskPixels(
   selection: GridSelection,
   dimensions: MaskDimensions,
 ): Uint8Array {
-  if (
-    dimensions.width < 1 ||
-    dimensions.height < 1 ||
-    dimensions.width * dimensions.height > MASK_LIMITS.maxPixels
-  ) {
-    throw new Error("Image dimensions exceed the supported mask size.");
-  }
+  const dimensionsError = imageDimensionsError(dimensions);
+  if (dimensionsError) throw new Error(dimensionsError);
   const pixels = new Uint8Array(dimensions.width * dimensions.height);
   for (let row = 0; row < selection.resolution; row++) {
     for (let col = 0; col < selection.resolution; col++) {
@@ -135,16 +249,22 @@ export function countSelectedRegions(selection: GridSelection): number {
       const index = queue[cursor]!;
       const row = Math.floor(index / resolution);
       const col = index % resolution;
-      const neighbors = [
-        col > 0 ? index - 1 : -1,
-        col < resolution - 1 ? index + 1 : -1,
-        row > 0 ? index - resolution : -1,
-        row < resolution - 1 ? index + resolution : -1,
-      ];
-      for (const neighbor of neighbors) {
-        if (neighbor >= 0 && cells[neighbor] && !visited[neighbor]) {
-          visited[neighbor] = 1;
-          queue.push(neighbor);
+      for (
+        let neighborRow = Math.max(0, row - 1);
+        neighborRow <= Math.min(resolution - 1, row + 1);
+        neighborRow++
+      ) {
+        for (
+          let neighborCol = Math.max(0, col - 1);
+          neighborCol <= Math.min(resolution - 1, col + 1);
+          neighborCol++
+        ) {
+          if (neighborRow === row && neighborCol === col) continue;
+          const neighbor = neighborRow * resolution + neighborCol;
+          if (cells[neighbor] && !visited[neighbor]) {
+            visited[neighbor] = 1;
+            queue.push(neighbor);
+          }
         }
       }
     }
@@ -156,13 +276,17 @@ export function validateSelection(
   selection: GridSelection,
   dimensions: MaskDimensions,
 ): string | null {
-  if (dimensions.width < 1 || dimensions.height < 1)
-    return "The uploaded image has invalid dimensions.";
-  if (dimensions.width * dimensions.height > MASK_LIMITS.maxPixels) {
-    return `This image exceeds the ${MASK_LIMITS.maxPixels.toLocaleString()}-pixel processing limit.`;
+  const dimensionsError = imageDimensionsError(dimensions);
+  if (dimensionsError) return dimensionsError;
+  const totalPixels = dimensions.width * dimensions.height;
+  const maskedPixels = selectedPixelCount(selection, dimensions);
+  if (maskedPixels === 0) return "Select at least one damaged grid cell.";
+  if (maskedPixels > MASK_LIMITS.maxMaskedPixels) {
+    return `Selected damage exceeds the ${MASK_LIMITS.maxMaskedPixels.toLocaleString()}-pixel processing limit.`;
   }
-  if (selectedPixelCount(selection, dimensions) === 0)
-    return "Select at least one damaged grid cell.";
+  if ((maskedPixels / totalPixels) * 100 > MASK_LIMITS.maxMaskedPercentage) {
+    return `Selected damaged area exceeds the ${MASK_LIMITS.maxMaskedPercentage}% processing limit.`;
+  }
   const regions = countSelectedRegions(selection);
   if (regions > MASK_LIMITS.maxRegions) {
     return `Selection has ${regions} separate regions; the current limit is ${MASK_LIMITS.maxRegions}.`;
@@ -174,13 +298,8 @@ export async function createBinaryMaskPNG(
   selection: GridSelection,
   dimensions: MaskDimensions,
 ): Promise<Blob> {
-  if (
-    dimensions.width < 1 ||
-    dimensions.height < 1 ||
-    dimensions.width * dimensions.height > MASK_LIMITS.maxPixels
-  ) {
-    throw new Error("Image dimensions exceed the supported mask size.");
-  }
+  const dimensionsError = imageDimensionsError(dimensions);
+  if (dimensionsError) throw new Error(dimensionsError);
   const canvas = document.createElement("canvas");
   canvas.width = dimensions.width;
   canvas.height = dimensions.height;
@@ -210,4 +329,120 @@ export async function createBinaryMaskPNG(
       else reject(new Error("Could not encode the damage mask."));
     }, "image/png");
   });
+}
+
+/** Converts an arbitrary brush canvas into a standard binary PNG Blob (white=reconstruct, black=preserve). */
+export async function createMaskCanvasPNG(
+  maskCanvas: HTMLCanvasElement,
+  dimensions: MaskDimensions,
+): Promise<Blob> {
+  const dimensionsError = imageDimensionsError(dimensions);
+  if (dimensionsError) throw new Error(dimensionsError);
+  if (maskCanvas.width !== dimensions.width || maskCanvas.height !== dimensions.height) {
+    throw new Error("Damage mask dimensions must match the uploaded image.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = dimensions.width;
+  canvas.height = dimensions.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not prepare the damage mask.");
+
+  // Black background = preserve
+  context.fillStyle = "black";
+  context.fillRect(0, 0, dimensions.width, dimensions.height);
+
+  const sourceContext = maskCanvas.getContext("2d");
+  if (!sourceContext) throw new Error("Could not read the damage mask.");
+  const data = sourceContext.getImageData(0, 0, dimensions.width, dimensions.height).data;
+  const outData = context.createImageData(dimensions.width, dimensions.height);
+  const out = outData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] ?? 0;
+    if (alpha > 20) {
+      out[i] = 255;
+      out[i + 1] = 255;
+      out[i + 2] = 255;
+      out[i + 3] = 255;
+    } else {
+      out[i] = 0;
+      out[i + 1] = 0;
+      out[i + 2] = 0;
+      out[i + 3] = 255;
+    }
+  }
+  context.putImageData(outData, 0, 0);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Could not encode the damage mask."));
+    }, "image/png");
+  });
+}
+
+/** Counts non-zero pixels in a brush mask canvas */
+export function countMaskCanvasPixels(
+  maskCanvas: HTMLCanvasElement,
+  dimensions: MaskDimensions,
+): number {
+  const ctx = maskCanvas.getContext("2d");
+  if (!ctx) return 0;
+  try {
+    const imgData = ctx.getImageData(0, 0, dimensions.width, dimensions.height);
+    const data = imgData.data;
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) {
+      const alpha = data[i] ?? 0;
+      if (alpha > 20) count++;
+    }
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
+/** Validates mask pixel count against image dimensions and limits */
+export function validateMaskPixelCount(count: number, dimensions: MaskDimensions): string | null {
+  const dimensionsError = imageDimensionsError(dimensions);
+  if (dimensionsError) return dimensionsError;
+  const total = dimensions.width * dimensions.height;
+  if (count === 0) {
+    return "Highlight or select at least one damaged area.";
+  }
+  if (count > total) {
+    return "The damage mask contains more pixels than the uploaded image.";
+  }
+  if (count > MASK_LIMITS.maxMaskedPixels) {
+    return `Selection exceeds the ${MASK_LIMITS.maxMaskedPixels.toLocaleString()}-pixel processing limit.`;
+  }
+  if ((count / total) * 100 > MASK_LIMITS.maxMaskedPercentage) {
+    return `Selected damaged area exceeds the ${MASK_LIMITS.maxMaskedPercentage}% processing limit.`;
+  }
+  return null;
+}
+
+/**
+ * Converts a Base64 data URL (e.g. "data:image/png;base64,...") to a standard File object.
+ * Safe for all browser environments and Vitest/Node test environments without network overhead.
+ */
+export function dataUrlToFile(dataUrl: string, filename: string): File {
+  const parts = dataUrl.split(",");
+  const mimeMatch = parts[0]?.match(/:(.*?);/);
+  const mime = mimeMatch && mimeMatch[1] ? mimeMatch[1] : "image/png";
+  const b64Data = parts[1] || "";
+
+  const binaryString =
+    typeof atob === "function"
+      ? atob(b64Data)
+      : typeof Buffer !== "undefined"
+        ? Buffer.from(b64Data, "base64").toString("binary")
+        : "";
+
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new File([bytes], filename, { type: mime });
 }

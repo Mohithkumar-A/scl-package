@@ -1,185 +1,429 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { Download, Sparkles, Info } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  AlertCircle,
+  Columns2,
+  Download,
+  ImagePlus,
+  Info,
+  Loader2,
+  Paintbrush,
+  Play,
+  RotateCcw,
+  Sparkles,
+  SplitSquareVertical,
+} from "lucide-react";
 import { UploadCard } from "@/components/UploadCard";
 import { DamageGrid } from "@/components/DamageGrid";
-import { createBinaryMaskPNG, createGridSelection, validateSelection } from "@/utils/mask";
-import { ReconstructionSettings } from "@/components/ReconstructionSettings";
-import { ImagePanel } from "@/components/ImagePanel";
+import { createMaskCanvasPNG, dataUrlToFile, validateMaskPixelCount } from "@/utils/mask";
 import { CompareSlider } from "@/components/CompareSlider";
-import { ReconstructionProcess } from "@/components/ReconstructionProcess";
-import { MathematicalModel } from "@/components/MathematicalModel";
 import { ResultsCard } from "@/components/ResultsCard";
 import { LoadingState } from "@/components/LoadingState";
 import { reconstructImage, isDemoMode } from "@/services/api";
-import type {
-  GridSelection,
-  ReconstructionMethod,
-  ReconstructionResult,
-  UploadedImage,
-} from "@/types/reconstruction";
+import { Button } from "@/components/ui/button";
+import type { ReconstructionResult, UploadedImage } from "@/types/reconstruction";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Image Inpainting — Linear Algebra Reconstruction" },
+      { title: "Image Inpainting — Linear Algebra Restoration" },
       {
         name: "description",
         content:
-          "Reconstruct damaged image regions using least squares and Tikhonov regularization.",
+          "Reconstruct damaged image regions using discrete harmonic linear systems and adjacent pixel projection.",
       },
-      { property: "og:title", content: "Image Inpainting — Linear Algebra Reconstruction" },
+      { property: "og:title", content: "Image Inpainting — Linear Algebra Restoration" },
       {
         property: "og:description",
         content:
-          "Reconstruct damaged image regions using least squares and Tikhonov regularization.",
+          "Reconstruct damaged image regions using discrete harmonic linear systems and adjacent pixel projection.",
       },
     ],
   }),
   component: Home,
 });
 
+// Mathematically optimal regularization parameter: balances Dirichlet boundaries and harmonic smoothing
+const OPTIMAL_LAMBDA = 0.01;
+
 function Home() {
-  const [image, setImage] = useState<UploadedImage | null>(null);
-  const [lambda, setLambda] = useState(0.01);
-  const [method, setMethod] = useState<ReconstructionMethod>("tikhonov");
+  // Original uploaded image (kept unchanged so the user can always compare vs original and reset)
+  const [originalImage, setOriginalImage] = useState<UploadedImage | null>(null);
+
+  // Current active working image file and URL (accumulates repairs across multiple passes)
+  const [workingImage, setWorkingImage] = useState<{ file: File; url: string } | null>(null);
+
+  // Counter of completed inpainting passes
+  const [passCount, setPassCount] = useState<number>(0);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReconstructionResult | null>(null);
-  const [view, setView] = useState<"side" | "compare">("side");
-  const [selection, setSelection] = useState<GridSelection>(createGridSelection());
+  const [view, setView] = useState<"paint" | "compare" | "side">("paint");
+  const [brushPixelCount, setBrushPixelCount] = useState<number>(0);
+  const brushCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeRequestIdRef = useState(() => ({ current: 0 }))[0];
 
+  // Overall reset occurs ONLY when replacing or uploading a new image
   const onImage = (img: UploadedImage | null) => {
-    setImage(img);
+    activeRequestIdRef.current++;
+    setOriginalImage(img);
+    setWorkingImage(img ? { file: img.file, url: img.url } : null);
+    setPassCount(0);
     setResult(null);
     setError(null);
-    setSelection(createGridSelection());
+    setBrushPixelCount(0);
+    setView("paint");
   };
 
+  // Revert back to the original image without re-uploading from disk
+  const revertToOriginal = () => {
+    if (!originalImage) return;
+    activeRequestIdRef.current++;
+    setWorkingImage({ file: originalImage.file, url: originalImage.url });
+    setPassCount(0);
+    setResult(null);
+    setError(null);
+    setBrushPixelCount(0);
+    setView("paint");
+  };
+
+  // Execute inpainting pass on the current working image
   const run = async () => {
-    if (!image) return;
-    const dims = { width: image.width, height: image.height };
-    const validationError = validateSelection(selection, dims);
+    if (!originalImage || !workingImage) return;
+    const dims = { width: originalImage.width, height: originalImage.height };
+
+    const validationError = validateMaskPixelCount(brushPixelCount, dims);
     if (validationError) {
       setError(validationError);
       return;
     }
+    if (!brushCanvasRef.current) {
+      setError("Brush canvas is not ready. Please paint over the damaged area.");
+      return;
+    }
+
+    const currentRequestId = ++activeRequestIdRef.current;
     setLoading(true);
     setError(null);
     try {
-      const mask = await createBinaryMaskPNG(selection, dims);
-      setResult(
-        await reconstructImage({ file: image.file, mask, maskDimensions: dims, lambda, method }),
-      );
+      const mask = await createMaskCanvasPNG(brushCanvasRef.current, dims);
+
+      // Submit reconstruction applying the new mask to the CURRENT working image file
+      const res = await reconstructImage({
+        file: workingImage.file,
+        mask,
+        maskDimensions: dims,
+        lambda: OPTIMAL_LAMBDA,
+        method: "tikhonov",
+      });
+
+      if (currentRequestId === activeRequestIdRef.current) {
+        const nextPass = passCount + 1;
+        const newFile = dataUrlToFile(res.reconstructed_image, `${baseName}_pass${nextPass}.png`);
+
+        // Update working image with the newly inpainted result for subsequent passes
+        setWorkingImage({
+          file: newFile,
+          url: res.reconstructed_image,
+        });
+        setPassCount(nextPass);
+        setResult(res);
+        setBrushPixelCount(0);
+        setView("compare");
+      }
     } catch (e) {
-      setError(
-        e instanceof Error ? `Reconstruction failed: ${e.message}` : "Reconstruction failed.",
-      );
+      if (currentRequestId === activeRequestIdRef.current) {
+        setError(
+          e instanceof Error ? `Reconstruction failed: ${e.message}` : "Reconstruction failed.",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (currentRequestId === activeRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
-  const dims = image ? { width: image.width, height: image.height } : null;
-  const hasSelection = selection.cells.some(Boolean);
-  const step = result ? 5 : loading ? 4 : image && hasSelection ? 2 : image ? 1 : 0;
-  const baseName = image?.file.name.replace(/\.[^.]+$/, "") ?? "image";
+  const dims = originalImage ? { width: originalImage.width, height: originalImage.height } : null;
+  const hasDamage = brushPixelCount > 0;
+  const baseName = originalImage?.file.name.replace(/\.[^.]+$/, "") ?? "image";
 
   return (
-    <main className="mx-auto w-full max-w-[1920px] px-4 py-6 lg:px-6">
+    <main className="mx-auto w-full max-w-[1720px] px-4 py-5 lg:px-8">
       {isDemoMode && (
-        <div className="mb-5 flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent">
-          <Info className="h-4 w-4 shrink-0" /> Demo mode: no backend configured (set VITE_API_URL).
-          Results are simulated for demonstration.
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent">
+          <Info className="h-4 w-4 shrink-0" /> Demo mode: simulated reconstruction.
         </div>
       )}
-      <div className="panel grid items-stretch gap-5 p-5 lg:grid-cols-[22fr_58fr_20fr] md:grid-cols-2">
-        <aside className="flex h-full flex-col gap-5 md:col-span-1 lg:col-span-1">
-          <UploadCard image={image} onChange={onImage} />
-          <ReconstructionSettings
-            lambda={lambda}
-            setLambda={setLambda}
-            method={method}
-            setMethod={setMethod}
-            canRun={!!image && hasSelection}
-            loading={loading}
-            error={error}
-            onRun={run}
-          />
-        </aside>
 
-        <div className="flex h-full flex-col gap-5 md:col-span-2 lg:col-span-1">
-          <div className="flex justify-end">
-            <div className="inline-flex rounded-lg border border-border bg-card p-1 text-xs">
-              {(["side", "compare"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  disabled={v === "compare" && !result}
-                  className={`rounded-md px-3 py-1.5 transition-colors disabled:opacity-40 ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      {/* When no image is uploaded: Clean Centered Upload Card */}
+      {!originalImage || !workingImage ? (
+        <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 py-12">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
+              Image Inpainting Studio
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Precision Linear Algebra Restoration with Adjacent Pixel Projection
+            </p>
+          </div>
+
+          <div className="w-full">
+            <UploadCard image={originalImage} onChange={onImage} />
+          </div>
+        </div>
+      ) : (
+        /* When image is uploaded: Full-Stage Interactive Workspace */
+        <div className="flex flex-col gap-4">
+          {/* Top Control Bar */}
+          <div className="panel flex flex-wrap items-center justify-between gap-3.5 p-3.5 shadow-md">
+            {/* Left: Image Info, Pass Indicator, Revert, and Change Image */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-2">
+                <span className="max-w-[180px] truncate font-mono text-sm font-semibold text-foreground sm:max-w-[280px]">
+                  {originalImage.file.name}
+                </span>
+                {dims && (
+                  <span className="rounded-md border border-border bg-surface px-2 py-0.5 font-mono text-xs text-muted-foreground">
+                    {dims.width} × {dims.height}
+                  </span>
+                )}
+              </div>
+
+              {/* Pass Badge */}
+              {passCount > 0 ? (
+                <div className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2 py-0.5 font-mono text-xs font-semibold text-primary">
+                  <Sparkles className="h-3 w-3" />
+                  Pass {passCount} Applied
+                </div>
+              ) : (
+                <span className="rounded-lg border border-border bg-surface px-2 py-0.5 text-xs text-muted-foreground">
+                  Original
+                </span>
+              )}
+
+              {/* Revert to Original Image (Visible when passes > 0) */}
+              {passCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={revertToOriginal}
+                  title="Revert back to the initial damaged image"
+                  className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  {v === "side" ? "Side by Side" : "Compare"}
-                </button>
-              ))}
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Revert to Original
+                </Button>
+              )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onImage(null)}
+                className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ImagePlus className="h-3.5 w-3.5" />
+                Change Image
+              </Button>
+            </div>
+
+            {/* Center: View Switcher */}
+            <div className="inline-flex rounded-lg border border-border bg-surface p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setView("paint")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+                  view === "paint"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Paintbrush className="h-3.5 w-3.5" />
+                Paint Mask
+              </button>
+              <button
+                type="button"
+                disabled={!result}
+                onClick={() => setView("compare")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors disabled:opacity-40 ${
+                  view === "compare"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <SplitSquareVertical className="h-3.5 w-3.5" />
+                Compare Slider
+              </button>
+              <button
+                type="button"
+                disabled={!result}
+                onClick={() => setView("side")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors disabled:opacity-40 ${
+                  view === "side"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Columns2 className="h-3.5 w-3.5" />
+                Side by Side
+              </button>
+            </div>
+
+            {/* Right: Primary Run Inpainting CTA */}
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={run}
+                disabled={!hasDamage || loading}
+                size="sm"
+                className="h-9 gap-2 px-5 text-xs font-semibold shadow-md shadow-primary/25"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Solving Linear System...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 fill-current" />
+                    {passCount > 0 ? "Inpaint Next Pass" : "Run Inpainting"}
+                  </>
+                )}
+              </Button>
             </div>
           </div>
 
-          {view === "compare" && result && image ? (
-            <CompareSlider before={image.url} after={result.reconstructed_image} />
-          ) : (
-            <div className="grid gap-5 sm:grid-cols-2">
-              <DamageGrid
-                src={image?.url ?? null}
-                dims={dims}
-                selection={selection}
-                disabled={loading}
-                onSelectionChange={setSelection}
-              />
-              <ImagePanel
-                title="Reconstructed Image"
-                src={result?.reconstructed_image}
-                dims={result ? dims : null}
-                empty={
-                  <Empty
-                    icon={<Sparkles className="h-8 w-8" />}
-                    text="Reconstructed image will appear here"
-                  />
-                }
-                overlay={loading ? <LoadingState /> : null}
-                footer={
-                  result && (
-                    <a
-                      href={result.reconstructed_image}
-                      download={`${baseName}_reconstructed.png`}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary/60"
-                    >
-                      <Download className="h-3.5 w-3.5" /> Download Image
-                    </a>
-                  )
-                }
-              />
+          {/* Error notification banner */}
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          <ReconstructionProcess activeStep={step} />
+          {/* Main Stage: DamageGrid is kept persistently mounted so strokes & zoom are never lost */}
+          <div className="relative w-full">
+            {/* Paint View */}
+            <div className={view === "paint" ? "block w-full" : "hidden"}>
+              <DamageGrid
+                src={workingImage.url}
+                originalSrc={originalImage.url}
+                dims={dims}
+                passCount={passCount}
+                disabled={loading}
+                brushCanvasRef={brushCanvasRef}
+                brushPixelCount={brushPixelCount}
+                onBrushChange={(count) => {
+                  activeRequestIdRef.current++;
+                  setBrushPixelCount(count);
+                  setError(null);
+                }}
+              />
+            </div>
+
+            {/* Compare View */}
+            <div className={view === "compare" && result ? "block w-full" : "hidden"}>
+              {result && (
+                <div className="panel flex flex-col gap-3 p-4 shadow-xl">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2.5">
+                    <span className="text-sm font-semibold text-foreground">
+                      Interactive Comparison: Original Damaged vs Restored{" "}
+                      {passCount > 1 ? `(${passCount} Cumulative Passes)` : ""}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setView("paint")}
+                        className="h-8 gap-1.5 text-xs font-medium"
+                      >
+                        <Paintbrush className="h-3.5 w-3.5" />
+                        Paint Remaining Defects
+                      </Button>
+                      <a
+                        href={workingImage.url}
+                        download={`${baseName}_restored.png`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary/60 transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Download Result
+                      </a>
+                    </div>
+                  </div>
+                  <CompareSlider before={originalImage.url} after={workingImage.url} />
+                </div>
+              )}
+            </div>
+
+            {/* Side-by-Side View */}
+            <div className={view === "side" && result ? "block w-full" : "hidden"}>
+              {result && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setView("paint")}
+                      className="h-8 gap-1.5 text-xs font-medium"
+                    >
+                      <Paintbrush className="h-3.5 w-3.5" />
+                      Paint Remaining Defects
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="panel flex flex-col p-4 shadow-xl">
+                      <h3 className="mb-2.5 text-sm font-semibold text-muted-foreground">
+                        Original (Damaged)
+                      </h3>
+                      <div className="checker relative flex h-[420px] lg:h-[540px] items-center justify-center overflow-hidden rounded-xl border border-border bg-[#070b14]">
+                        <img
+                          src={originalImage.url}
+                          alt="Original damaged"
+                          className="max-h-full max-w-full object-contain select-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="panel flex flex-col p-4 shadow-xl">
+                      <div className="mb-2.5 flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-primary">
+                          Inpainted Result {passCount > 1 ? `(Pass ${passCount})` : ""}
+                        </h3>
+                        <a
+                          href={workingImage.url}
+                          download={`${baseName}_restored.png`}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary/60 transition-colors"
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download
+                        </a>
+                      </div>
+                      <div className="checker relative flex h-[420px] lg:h-[540px] items-center justify-center overflow-hidden rounded-xl border border-border bg-[#070b14]">
+                        <img
+                          src={workingImage.url}
+                          alt="Inpainted result"
+                          className="max-h-full max-w-full object-contain select-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {loading && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-background/80 backdrop-blur-sm">
+                <LoadingState />
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Diagnostics Bar (Only Shown when Result Available) */}
+          {result && (
+            <div className="w-full">
+              <ResultsCard result={result} />
+            </div>
+          )}
         </div>
-
-        <aside className="flex h-full flex-col gap-5">
-          <ResultsCard result={result} />
-          <MathematicalModel />
-        </aside>
-      </div>
+      )}
     </main>
-  );
-}
-
-function Empty({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 px-4 text-center text-muted-foreground">
-      <span className="flex h-20 w-20 items-center justify-center rounded-2xl border border-border bg-card">
-        {icon}
-      </span>
-      <p className="max-w-[26ch] text-sm">{text}</p>
-    </div>
   );
 }

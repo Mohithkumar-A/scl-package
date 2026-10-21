@@ -83,14 +83,18 @@ def reconstruct_image_service(
             if not solver_res.converged:
                 all_converged = False
 
-        # Step 7: Encode reconstructed image back to Base64 PNG
+        # Step 7: Calculate changed pixels diagnostic (masked pixels with > 0.5 intensity diff)
+        diff = np.abs(decoded.channels[rows, cols, :] - reconstructed_channels[rows, cols, :])
+        changed_pixels_count = int(np.count_nonzero(np.any(diff > 0.5, axis=1)))
+
+        # Step 8: Encode reconstructed image back to Base64 PNG
         reconstructed_data_url = encode_image_to_base64_png(
             channels=reconstructed_channels,
             alpha=decoded.alpha,
             original_mode=decoded.original_mode,
         )
 
-    # Step 8: Compile genuine mathematical metrics
+    # Step 9: Compile genuine mathematical metrics (strictly avoiding fabricated PSNR/SSIM)
     metrics = compute_metrics(
         masked_pixels=val_result.masked_pixels,
         total_pixels=val_result.total_pixels,
@@ -98,6 +102,7 @@ def reconstruct_image_service(
         converged=all_converged,
         final_residual=max_residual,
         time_taken=timer.elapsed,
+        changed_pixels=changed_pixels_count,
     )
 
     return ReconstructionResponse(
@@ -116,4 +121,5 @@ def reconstruct_image_service(
         iterations=metrics["iterations"],
         converged=metrics["converged"],
         final_residual=metrics["final_residual"],
+        changed_pixels=metrics["changed_pixels"],
     )

@@ -48,17 +48,28 @@ class SolverResult:
         self.method_name = method_name
 
 
-def compute_residual(system: TikhonovSystem, x: np.ndarray) -> Tuple[np.ndarray, float, float]:
+def compute_residual(system: TikhonovSystem, x: np.ndarray) -> tuple[np.ndarray, float, float]:
     """Calculate the explicit residual r = b - A x and its relative 2-norm."""
     N = system.num_unknowns
+    if N == 0:
+        return np.array([]), 0.0, 0.0
     diag = system.diag
     b = system.b
-    nbrs = system.topology.unknown_neighbors
 
-    Ax = np.zeros(N, dtype=np.float64)
-    for i in range(N):
-        neighbor_sum = float(np.sum(x[nbrs[i]])) if len(nbrs[i]) > 0 else 0.0
-        Ax[i] = diag[i] * x[i] - neighbor_sum
+    # Vectorized residual calculation using dense neighbor matrix
+    if hasattr(system.topology, "nbr_matrix"):
+        nbr_matrix = system.topology.nbr_matrix
+        x_padded = np.zeros(N + 1, dtype=np.float64)
+        x_padded[:N] = x
+        nbr_vals = x_padded[nbr_matrix]
+        nbr_sum = np.sum(nbr_vals, axis=1)
+        Ax = diag * x - nbr_sum
+    else:
+        nbrs = system.topology.unknown_neighbors
+        Ax = np.zeros(N, dtype=np.float64)
+        for i in range(N):
+            neighbor_sum = float(np.sum(x[nbrs[i]])) if len(nbrs[i]) > 0 else 0.0
+            Ax[i] = diag[i] * x[i] - neighbor_sum
 
     r = b - Ax
     res_norm = float(np.linalg.norm(r))
@@ -74,13 +85,10 @@ def solve_gauss_seidel(
 ) -> SolverResult:
     """Solve the symmetric positive-definite system A x = b via Gauss-Seidel iteration.
 
-    Steps:
-        1. Validates strictly positive, finite diagonal entries.
-        2. Initializes iterate x with the boundary-mean prior estimate.
-        3. Executes successive in-place sweeps updating x_i.
-        4. Detects NaN or Inf values immediately.
-        5. Computes residual norm and checks convergence tolerance.
-        6. Enforces maximum iteration ceiling.
+    Uses high-performance vectorized Red-Black Gauss-Seidel ordering on the 4-connected
+    Cartesian topology: adjacent grid points alternate colors, allowing each color group
+    to be updated simultaneously without loop overhead while maintaining exact Gauss-Seidel
+    convergence properties.
     """
     N = system.num_unknowns
     if N == 0:
@@ -95,33 +103,59 @@ def solve_gauss_seidel(
             message="Linear system contains non-positive or non-finite diagonal elements.",
         )
 
-    # Step 2: Initialize estimate
-    x = system.initial_guess.copy()
-    if not np.all(np.isfinite(x)):
-        x = np.zeros(N, dtype=np.float64)
+    # Step 2: Initialize iterate with boundary-mean prior estimate
+    x_padded = np.zeros(N + 1, dtype=np.float64)
+    init_x = system.initial_guess.copy()
+    if not np.all(np.isfinite(init_x)):
+        init_x = np.zeros(N, dtype=np.float64)
+    x_padded[:N] = init_x
 
     b = system.b
-    nbrs = system.topology.unknown_neighbors
     b_norm = float(np.linalg.norm(b)) + 1e-12
+
+    # Check if vectorized topology is available
+    has_vectorized = (
+        hasattr(system.topology, "nbr_matrix")
+        and hasattr(system.topology, "red_indices")
+        and hasattr(system.topology, "black_indices")
+    )
+
+    if has_vectorized:
+        nbr_matrix = system.topology.nbr_matrix
+        red = system.topology.red_indices
+        black = system.topology.black_indices
+    else:
+        nbrs = system.topology.unknown_neighbors
+        nbr_lists = [nbrs[i] for i in range(N)]
 
     converged = False
     iterations_run = 0
     final_rel_res = 1.0
 
-    # Pre-unpack neighbors for high-performance iteration
-    nbr_lists = [nbrs[i] for i in range(N)]
-
     for it in range(1, max_iterations + 1):
         iterations_run = it
 
-        # Step 3: In-place Gauss-Seidel update sweep
-        for i in range(N):
-            m_indices = nbr_lists[i]
-            nbr_sum = float(np.sum(x[m_indices])) if len(m_indices) > 0 else 0.0
-            x[i] = (b[i] + nbr_sum) / diag[i]
+        if has_vectorized:
+            # Step 3a: Vectorized Red sweep (reads from Black neighbors)
+            if len(red) > 0:
+                nbr_vals_red = x_padded[nbr_matrix[red]]
+                nbr_sum_red = np.sum(nbr_vals_red, axis=1)
+                x_padded[red] = (b[red] + nbr_sum_red) / diag[red]
+
+            # Step 3b: Vectorized Black sweep (reads from freshly updated Red neighbors)
+            if len(black) > 0:
+                nbr_vals_black = x_padded[nbr_matrix[black]]
+                nbr_sum_black = np.sum(nbr_vals_black, axis=1)
+                x_padded[black] = (b[black] + nbr_sum_black) / diag[black]
+        else:
+            # Fallback scalar in-place sweep
+            for i in range(N):
+                m_indices = nbr_lists[i]
+                nbr_sum = float(np.sum(x_padded[m_indices])) if len(m_indices) > 0 else 0.0
+                x_padded[i] = (b[i] + nbr_sum) / diag[i]
 
         # Step 4: Detect non-finite values
-        if not np.all(np.isfinite(x)):
+        if not np.all(np.isfinite(x_padded[:N])):
             raise InpaintingException(
                 status_code=500,
                 code="NUMERICAL_INSTABILITY",
@@ -130,14 +164,14 @@ def solve_gauss_seidel(
 
         # Step 5: Check convergence every 5 iterations or at final iteration
         if it % 5 == 0 or it == max_iterations:
-            _, _, rel_res = compute_residual(system, x)
+            _, _, rel_res = compute_residual(system, x_padded[:N])
             final_rel_res = rel_res
             if rel_res < tolerance:
                 converged = True
                 break
 
     return SolverResult(
-        x=x,
+        x=np.clip(x_padded[:N], 0.0, 255.0),
         iterations=iterations_run,
         converged=converged,
         final_residual=final_rel_res,
@@ -164,9 +198,16 @@ def solve_jacobi(
         )
 
     x = system.initial_guess.copy()
-    x_next = np.zeros(N, dtype=np.float64)
     b = system.b
-    nbrs = system.topology.unknown_neighbors
+    b_norm = float(np.linalg.norm(b)) + 1e-12
+
+    has_vectorized = hasattr(system.topology, "nbr_matrix")
+    if has_vectorized:
+        nbr_matrix = system.topology.nbr_matrix
+        x_padded = np.zeros(N + 1, dtype=np.float64)
+    else:
+        x_next = np.zeros(N, dtype=np.float64)
+        nbrs = system.topology.unknown_neighbors
 
     converged = False
     iterations_run = 0
@@ -175,11 +216,16 @@ def solve_jacobi(
     for it in range(1, max_iterations + 1):
         iterations_run = it
 
-        # Jacobi update using previous iterate x
-        for i in range(N):
-            m_indices = nbrs[i]
-            nbr_sum = float(np.sum(x[m_indices])) if len(m_indices) > 0 else 0.0
-            x_next[i] = (b[i] + nbr_sum) / diag[i]
+        if has_vectorized:
+            x_padded[:N] = x
+            nbr_vals = x_padded[nbr_matrix]
+            nbr_sum = np.sum(nbr_vals, axis=1)
+            x_next = (b + nbr_sum) / diag
+        else:
+            for i in range(N):
+                m_indices = nbrs[i]
+                nbr_sum = float(np.sum(x[m_indices])) if len(m_indices) > 0 else 0.0
+                x_next[i] = (b[i] + nbr_sum) / diag[i]
 
         if not np.all(np.isfinite(x_next)):
             raise InpaintingException(
@@ -188,7 +234,7 @@ def solve_jacobi(
                 message="Non-finite values encountered during Jacobi iteration.",
             )
 
-        x[:] = x_next[:]
+        x = x_next.copy()
 
         if it % 5 == 0 or it == max_iterations:
             _, _, rel_res = compute_residual(system, x)

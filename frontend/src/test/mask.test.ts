@@ -7,6 +7,7 @@ import {
   remapGridSelection,
   selectedPixelCount,
   toggleGridCell,
+  validateMaskPixelCount,
   validateSelection,
 } from "@/utils/mask";
 
@@ -53,14 +54,17 @@ describe("selectedPixelCount", () => {
 });
 
 describe("countSelectedRegions", () => {
-  it("counts 4-connected regions", () => {
+  it("counts 8-connected regions", () => {
     let s = createGridSelection(10);
     s = toggleGridCell(s, 0);
     s = toggleGridCell(s, 1); // adjacent to 0
     s = toggleGridCell(s, 22); // separate
     expect(countSelectedRegions(s)).toBe(2);
-    s = toggleGridCell(s, 33); // diagonal to 22 — still separate (4-connected)
-    expect(countSelectedRegions(s)).toBe(3);
+    s = toggleGridCell(s, 33); // diagonal to 22 — part of the same region (8-connected)
+    expect(countSelectedRegions(s)).toBe(2);
+
+    const diagonal = toggleGridCell(toggleGridCell(createGridSelection(10), 0), 11);
+    expect(countSelectedRegions(diagonal)).toBe(1);
   });
 });
 
@@ -95,6 +99,11 @@ describe("createBinaryMaskPixels", () => {
     const s = createGridSelection(10);
     expect(() => createBinaryMaskPixels(s, { width: 5000, height: 5000 })).toThrow();
   });
+
+  it("rejects image dimensions beyond the backend per-dimension limit", () => {
+    const s = createGridSelection(10);
+    expect(() => createBinaryMaskPixels(s, { width: 4097, height: 4096 })).toThrow();
+  });
 });
 
 describe("validateSelection", () => {
@@ -102,5 +111,68 @@ describe("validateSelection", () => {
     expect(validateSelection(createGridSelection(10), dims)).toMatch(/Select at least one/);
     const s = toggleGridCell(createGridSelection(10), 0);
     expect(validateSelection(s, dims)).toBeNull();
+  });
+});
+
+describe("validateMaskPixelCount", () => {
+  it("requires at least one painted pixel", () => {
+    expect(validateMaskPixelCount(0, dims)).toMatch(/Highlight or select/);
+  });
+
+  it("validates valid pixel counts", () => {
+    expect(validateMaskPixelCount(100, dims)).toBeNull();
+  });
+
+  it("rejects invalid dimensions", () => {
+    expect(validateMaskPixelCount(10, { width: 0, height: 0 })).toMatch(/invalid dimensions/);
+  });
+
+  it("rejects selection exceeding 85% processing limit", () => {
+    expect(validateMaskPixelCount(4500, { width: 100, height: 50 })).toMatch(
+      /85% processing limit/,
+    );
+  });
+
+  it("rejects selections exceeding the backend default masked-pixel limit", () => {
+    expect(validateMaskPixelCount(2_000_001, { width: 2000, height: 2000 })).toMatch(
+      /2,000,000-pixel processing limit/,
+    );
+  });
+
+  it("rejects a mask whose dimensions exceed the image pixel limit", () => {
+    expect(validateMaskPixelCount(1, { width: 4097, height: 4096 })).toMatch(
+      /dimensions cannot exceed 4096 × 4096/,
+    );
+  });
+});
+
+describe("BrushMaskState", () => {
+  it("keeps brush selection and bounded history in intrinsic mask state", async () => {
+    const { BrushMaskState } = await import("@/utils/mask");
+    const state = new BrushMaskState({ width: 40, height: 30 });
+
+    expect(state.canvas.width).toBe(40);
+    expect(state.canvas.height).toBe(30);
+    expect(state.canUndo).toBe(false);
+    expect(state.beginStroke(10, 12, 6, "paint")).toBeUndefined();
+    expect(state.canUndo).toBe(true);
+    expect(state.canRedo).toBe(false);
+    expect(state.undo()).toBe(true);
+    expect(state.canRedo).toBe(true);
+    expect(state.redo()).toBe(true);
+  });
+});
+
+describe("dataUrlToFile", () => {
+  it("converts a base64 png data URL to a standard File object", async () => {
+    const { dataUrlToFile } = await import("@/utils/mask");
+    // 1x1 white PNG data url
+    const dataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    const file = dataUrlToFile(dataUrl, "restored_pass1.png");
+    expect(file).toBeInstanceOf(File);
+    expect(file.name).toBe("restored_pass1.png");
+    expect(file.type).toBe("image/png");
+    expect(file.size).toBeGreaterThan(0);
   });
 });

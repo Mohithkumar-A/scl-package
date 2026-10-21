@@ -49,6 +49,34 @@ export function ResultsCard({ result }: { result: ReconstructionResult | null })
           </div>
         ))}
       </div>
+      {result && (
+        <div className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground flex flex-col gap-1">
+          {result.masked_pixels != null && (
+            <div className="flex justify-between">
+              <span>Masked Pixels:</span>
+              <span className="font-mono text-foreground">
+                {result.masked_pixels.toLocaleString()} ({result.masked_percentage ?? 0}%)
+              </span>
+            </div>
+          )}
+          {result.changed_pixels != null && (
+            <div className="flex justify-between">
+              <span>Reconstructed / Modified:</span>
+              <span className="font-mono text-primary font-semibold">
+                {result.changed_pixels.toLocaleString()} px
+              </span>
+            </div>
+          )}
+          {result.final_residual != null && (
+            <div className="flex justify-between">
+              <span>Final Residual:</span>
+              <span className="font-mono text-foreground">
+                {result.final_residual.toExponential(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

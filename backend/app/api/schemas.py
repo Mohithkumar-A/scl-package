@@ -51,3 +51,7 @@ class ReconstructionResponse(BaseModel):
     iterations: int
     converged: bool
     final_residual: float
+    changed_pixels: Optional[int] = Field(
+        None,
+        description="Number of masked pixels whose output value differs from the input value (tolerance > 0.5 intensity).",
+    )

@@ -29,6 +29,32 @@ def test_health_check_endpoint():
     assert "version" in data
 
 
+def test_cors_allows_configured_frontend_origin():
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_cors_rejects_unconfigured_origin():
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
 def test_reconstruct_endpoint_success():
     """Verify POST /api/reconstruct successfully processes valid uploads."""
     img_arr = np.full((16, 16, 3), 100, dtype=np.uint8)

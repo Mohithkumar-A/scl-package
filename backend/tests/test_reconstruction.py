@@ -107,3 +107,83 @@ def test_reconstruction_rgba_preserves_alpha():
     recon_decoded = decode_image(recon_bytes)
     assert recon_decoded.alpha is not None
     assert np.array_equal(recon_decoded.alpha, rgba_arr[:, :, 3])
+
+
+def test_reconstruction_modifies_damaged_pixels():
+    """Verify that damaged pixels within the mask are actually reconstructed and modified."""
+    h, w = 30, 30
+    # Clean background is 180 (e.g. sky)
+    img_arr = np.full((h, w, 3), 180, dtype=np.uint8)
+    # Damage: a dark tear (pixel value 20) in rows 10:20, cols 10:20
+    img_arr[10:20, 10:20, :] = 20
+    img_bytes = make_png_bytes(img_arr, mode="RGB")
+
+    # Mask precisely covering the damage
+    mask_arr = np.zeros((h, w), dtype=np.uint8)
+    mask_arr[10:20, 10:20] = 255
+    mask_bytes = make_png_bytes(mask_arr, mode="L")
+
+    resp = reconstruct_image_service(img_bytes, mask_bytes, lambda_value=0.01)
+
+    assert resp.masked_pixels == 100
+    assert resp.changed_pixels == 100  # All 100 damaged pixels were changed
+    assert resp.converged is True
+
+    # Decode returned image and verify the damaged dark tear was restored toward 180
+    b64_data = resp.reconstructed_image.split(",", 1)[1]
+    recon_bytes = base64.b64decode(b64_data)
+    recon_decoded = decode_image(recon_bytes)
+    recon_arr = np.round(recon_decoded.channels).astype(np.uint8)
+
+    # The reconstructed region should be restored close to the surrounding sky (180), not 20
+    reconstructed_patch = recon_arr[10:20, 10:20, :]
+    assert np.all(reconstructed_patch > 160)
+    assert np.all(reconstructed_patch <= 180)
+
+    # Surrounding pixels must remain exactly 180
+    unmasked = mask_arr == 0
+    assert np.array_equal(recon_arr[unmasked], img_arr[unmasked])
+
+
+def test_reconstruction_independent_components_no_color_leak():
+    """Verify that multiple disconnected damage regions in different areas
+    (e.g., sky vs forest) reconstruct using their respective local boundaries
+    without leaking color into each other.
+    """
+    h, w = 60, 60
+    img_arr = np.zeros((h, w, 3), dtype=np.uint8)
+    # Sky region at top
+    img_arr[:30, :, :] = [180, 210, 240]
+    # Forest region at bottom
+    img_arr[30:, :, :] = [30, 80, 30]
+
+    img_bytes = make_png_bytes(img_arr, mode="RGB")
+
+    # Hole 1 in the sky: rows 10:20, cols 10:20
+    # Hole 2 in the forest: rows 40:50, cols 10:20
+    mask_arr = np.zeros((h, w), dtype=np.uint8)
+    mask_arr[10:20, 10:20] = 255
+    mask_arr[40:50, 10:20] = 255
+    mask_bytes = make_png_bytes(mask_arr, mode="L")
+
+    resp = reconstruct_image_service(img_bytes, mask_bytes, lambda_value=0.01)
+
+    assert resp.connected_regions == 2
+    assert resp.masked_pixels == 200
+
+    b64_data = resp.reconstructed_image.split(",", 1)[1]
+    recon_bytes = base64.b64decode(b64_data)
+    recon_decoded = decode_image(recon_bytes)
+    recon_arr = np.round(recon_decoded.channels).astype(np.uint8)
+
+    # Sky hole (rows 10:20, cols 10:20) should be restored to sky colors (~180, 210, 240)
+    # It must NOT be darkened by the forest boundary below
+    sky_patch = recon_arr[10:20, 10:20, :]
+    assert np.all(sky_patch[:, :, 0] >= 175)
+    assert np.all(sky_patch[:, :, 2] >= 235)
+
+    # Forest hole (rows 40:50, cols 10:20) should be restored to forest colors (~30, 80, 30)
+    # It must NOT be brightened/grayed by the sky boundary above
+    forest_patch = recon_arr[40:50, 10:20, :]
+    assert np.all(forest_patch[:, :, 0] <= 35)
+    assert np.all(forest_patch[:, :, 2] <= 35)

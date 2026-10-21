@@ -78,22 +78,53 @@ def construct_tikhonov_system(
     b = np.zeros(N, dtype=np.float64)
     initial_guess = np.zeros(N, dtype=np.float64)
 
-    # Compute global boundary channel mean as fallback prior
-    boundary_values = []
-    for kn_nbrs in topology.known_boundary_coords:
-        for nr, nc in kn_nbrs:
-            boundary_values.append(channel[nr, nc])
+    # Compute boundary channel mean PER CONNECTED COMPONENT
+    # This prevents cross-region contamination (e.g., sky hole being polluted by dark tree boundary)
+    comp_ids = getattr(topology, "unknown_component_ids", None)
+    comp_count = getattr(topology, "comp_count", 1)
 
-    global_boundary_mean = float(np.mean(boundary_values)) if boundary_values else float(np.mean(channel))
+    comp_means: dict[int, float] = {}
+    if comp_ids is not None and comp_count > 0:
+        for c in range(1, comp_count + 1):
+            c_indices = np.where(comp_ids == c)[0]
+            b_vals = []
+            for idx in c_indices:
+                for nr, nc in topology.known_boundary_coords[idx]:
+                    b_vals.append(channel[nr, nc])
+            if b_vals:
+                comp_means[c] = float(np.mean(b_vals))
+            else:
+                comp_means[c] = float(np.mean(channel))
+    else:
+        boundary_values = []
+        for kn_nbrs in topology.known_boundary_coords:
+            for nr, nc in kn_nbrs:
+                boundary_values.append(channel[nr, nc])
+        global_mean = float(np.mean(boundary_values)) if boundary_values else float(np.mean(channel))
+        comp_means[1] = global_mean
+
+    global_fallback = float(np.mean(list(comp_means.values()))) if comp_means else float(np.mean(channel))
+
+    has_proj = hasattr(topology, "projected_boundary_coords") and topology.projected_boundary_coords is not None
 
     for idx in range(N):
         kn_nbrs = topology.known_boundary_coords[idx]
+        c_id = comp_ids[idx] if comp_ids is not None else 1
+        c_mean = comp_means.get(c_id, global_fallback)
+
+        # Use the propagated boundary estimate for unknowns with no known 4-neighbor.
+        if has_proj and len(topology.projected_boundary_coords) > idx:
+            proj_r, proj_c = topology.projected_boundary_coords[idx]
+            projected_color = float(channel[proj_r, proj_c])
+        else:
+            projected_color = c_mean
+
         if kn_nbrs:
             known_sum = sum(float(channel[nr, nc]) for nr, nc in kn_nbrs)
             local_prior = known_sum / len(kn_nbrs)
         else:
             known_sum = 0.0
-            local_prior = global_boundary_mean
+            local_prior = projected_color
 
         # Right-hand side b_k = sum(known neighbors) + lambda * prior
         b[idx] = known_sum + lambda_val * local_prior

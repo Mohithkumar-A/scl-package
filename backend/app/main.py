@@ -24,11 +24,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Enable CORS for local and web development
+# Allow only the origins configured through CORS_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins if settings.cors_origins != ["*"] else ["*"],
-    allow_credentials=True if settings.cors_origins != ["*"] else False,
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

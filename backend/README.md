@@ -8,11 +8,11 @@ Built for the **Scientific Computing Lab (SCL)** academic course demonstration a
 
 ## 1. Project Overview
 
-This backend services the interactive web frontend for image inpainting. The frontend allows users to upload damaged images, mark damaged regions using an interactive grid overlay, configure the regularization trade-off $\lambda$, and trigger mathematical reconstruction.
+This backend services the interactive web frontend for image inpainting. The frontend allows users to upload an image, paint damaged pixels with a brush, erase mask strokes, and trigger reconstruction. The current UI submits a fixed regularization value, $\lambda = 0.01$; the API itself accepts lambda as a request parameter.
 
 ### Key Principles
 - **No Black Boxes**: Does **not** use `cv2.inpaint`, `skimage.restoration.inpaint_biharmonic`, deep learning models, pretrained weights, or opaque direct solvers (`numpy.linalg.solve`).
-- **Explainable Numerical Linear Algebra**: Formulates the regularized Dirichlet-Laplacian Euler-Lagrange equations and solves the symmetric positive-definite system line-by-line using **Gauss-Seidel** and **Jacobi** relaxation.
+- **Explainable Numerical Linear Algebra**: Forms a regularized Dirichlet-Laplacian system and implements **Red-Black Gauss-Seidel** and **Jacobi** relaxation. The reconstruction service currently uses Gauss-Seidel.
 - **Authentic Metrics**: Refuses to fabricate PSNR or SSIM metrics when no pristine ground-truth image exists. Reports verified linear system residuals $\|b - Ax\|_2 / (\|b\|_2 + \epsilon)$, iteration counts, convergence status, and exact execution runtimes.
 - **Zero Modification of Preserved Pixels**: All undamaged pixels ($M_{i,j} = 0$) are preserved bit-for-bit in the reconstructed image. Alpha transparency channels are preserved untouched.
 
@@ -35,7 +35,7 @@ backend/
 │   │   └── reconstruction_service.py # Orchestrator: decoding, validation, solving, encoding
 │   ├── calculations/
 │   │   ├── mask_validation.py      # 8-connectivity analysis, region size & boundary verification
-│   │   ├── difference_operators.py # Graph topology mapping 2D pixels to 1D unknowns
+│   │   ├── difference_operators.py # Graph topology, connected components, boundary projection
 │   │   ├── tikhonov.py             # Euler-Lagrange Tikhonov linear system assembly (A x = b)
 │   │   ├── iterative_solver.py     # Custom transparent Gauss-Seidel & Jacobi solvers
 │   │   └── metrics.py              # Verifiable mathematical diagnostics
@@ -109,7 +109,22 @@ The server will be available at:
    cd frontend
    npm run dev
    ```
-4. The frontend will now bypass demo mode and make live HTTP multipart POST requests to the Python backend.
+4. The frontend will make live HTTP multipart POST requests to the Python backend. The API URL defaults to `http://localhost:8000`; set `VITE_API_URL` when using a different backend.
+
+To run the frontend without the backend, set `VITE_DEMO_MODE=true` in `frontend/.env`. Demo mode performs a visual blur simulation and returns illustrative PSNR, SSIM, and residual values. These are not solver measurements; use the backend for real reconstruction and diagnostics.
+
+### Frontend workflow
+
+- Upload an image, paint the damaged area, and use Erase, Undo, Redo, or Clear to adjust the mask.
+- Zoom and pan change only the display. The mask is stored and exported at the image's intrinsic pixel dimensions.
+- Run a reconstruction, compare the result with the original using the slider or side-by-side view, or paint another pass on the current result. Revert to Original resets the working image.
+- The UI uses a fixed lambda value of `0.01`. Direct API clients can provide a different value within the configured backend range.
+
+### Default processing limits
+
+The default limits are 4096 pixels per image dimension, 16,777,216 total image pixels, 2,000,000 masked pixels, 85% masked coverage, 100 connected regions, and 1,000,000 pixels per connected region. Backend values can be changed with the variables in `.env.example`; server-side validation is authoritative. Frontend validation mirrors the default image and mask limits to give immediate feedback.
+
+Configure `CORS_ORIGINS` as a comma-separated list of allowed frontend origins. The server uses this setting for CORS; credentials are not enabled.
 
 ---
 
@@ -153,7 +168,8 @@ Performs Tikhonov regularization inpainting on an uploaded image and binary mask
     "lambda_value": 0.01,
     "iterations": 45,
     "converged": true,
-    "final_residual": 0.000084
+    "final_residual": 0.000084,
+    "changed_pixels": 256
   }
   ```
 
@@ -195,8 +211,8 @@ Performs Tikhonov regularization inpainting on an uploaded image and binary mask
   - Pixel $(r, c)$ in the mask corresponds strictly to pixel $(r, c)$ in the input image array.
   - The mask width and height must match the decoded image dimensions exactly.
 - **Connected Components**:
-  - Evaluated using **8-connectivity** (including horizontal, vertical, and diagonal neighbors).
-  - This ensures diagonal grid cells selected by the user are grouped as a single continuous region for validation budgets.
+  - Validation groups damaged pixels using **8-connectivity**, including diagonal neighbors.
+  - The numerical system uses 4-connected neighbors for its discrete Laplacian.
 
 ---
 
@@ -216,7 +232,7 @@ where:
 - $L$ is the discrete Laplacian operator representing the **smoothness penalty**.
 - $c \in \mathbb{R}^N$ encapsulates the boundary constraints contributed by known neighbor pixels.
 - $\lambda > 0$ is the Tikhonov regularization parameter.
-- $x_0 \in \mathbb{R}^N$ is the local prior (mean boundary intensity).
+- $x_0 \in \mathbb{R}^N$ is the local prior. The implementation uses the mean of known 4-neighbors where available and a propagated nearby boundary color for interior pixels.
 
 Taking the gradient with respect to $x$ and setting to zero yields the regularized linear system:
 $$(L + \lambda I) x = c + \lambda x_0$$
@@ -251,8 +267,8 @@ For each unknown pixel $k \in \{0, \dots, N-1\}$ located at grid coordinates $(r
 
 Because $A$ is an M-matrix, classical iterative splitting methods converge **unconditionally** from any initial iterate $x^{(0)}$.
 
-### 10.1 Gauss-Seidel Update
-We decompose $A = D - E - F$, where $D$ is diagonal, $-E$ is strictly lower triangular, and $-F$ is strictly upper triangular. In Gauss-Seidel relaxation, unknowns are updated in-place:
+### 10.1 Red-Black Gauss-Seidel Update
+Unknowns are partitioned by checkerboard parity on the image grid. The red group is updated from the current black values, followed by the black group using the newly updated red values. The two vectorized group updates implement a Gauss-Seidel ordering for the 4-connected grid:
 $$x_i^{(k+1)} = \frac{b_i + \sum_{m \in \text{unknown neighbors}} x_m}{\text{diag}_i}$$
 where the most recently updated values of $x_m$ are used immediately.
 
@@ -275,11 +291,13 @@ The solver terminates when:
 
 ## 11. Testing & Verification
 
-The test suite contains **25 automated tests** covering:
+The test suite currently contains **29 automated tests** covering:
 - **Mask Validation**: Threshold conventions, dimension checks, 8-connectivity labeling, and boundary verification.
 - **Analytical Solver Verification**: Solves small systems with exact closed-form solutions ($2 \times 2$ and $3 \times 3$), verifying residual norms and convergence.
 - **Tikhonov Linear System**: Verifies Gershgorin circle diagonal dominance and parameter limits.
 - **Multi-Channel & Alpha Preservation**: Proves that RGB and grayscale channels are restored while alpha channels and all unmasked pixels remain bit-for-bit identical.
+- **Boundary Projection & Diagnostics**: Checks component-aware boundary priors and changed-pixel reporting.
+- **CORS**: Checks that configured frontend origins are allowed and unconfigured origins are rejected.
 - **FastAPI HTTP Endpoints**: Tests real HTTP requests, multipart payloads, and JSON error structures using `TestClient`.
 
 ### Running Tests
@@ -290,15 +308,7 @@ source .venv/bin/activate
 pytest tests/
 ```
 
-Expected output:
-```
-tests/test_api.py ......                                                 [ 24%]
-tests/test_iterative_solver.py ....                                      [ 40%]
-tests/test_mask_validation.py ........                                   [ 72%]
-tests/test_reconstruction.py ....                                        [ 88%]
-tests/test_tikhonov.py ...                                               [100%]
-============================== 25 passed in 0.24s ==============================
-```
+The current suite completes with 29 passing tests. Exact per-file progress output can vary as tests are added.
 
 ---
 

@@ -8,7 +8,7 @@ const steps = [
   },
   {
     t: "Mark the Damage",
-    d: "Select damaged grid cells and generate a pixel-exact binary mask.",
+    d: "Paint scratches or select cells to generate a pixel-exact binary mask.",
     m: "M \\in \\{0,1\\}^{n}",
   },
   {

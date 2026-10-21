@@ -6,7 +6,7 @@ and constructs the discrete Laplacian graph topology with neighboring known pixe
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 
 
@@ -21,6 +21,12 @@ class GridTopology:
         degree: np.ndarray,        # shape (N,): total spatial 4-neighbors inside image bounds
         unknown_neighbors: List[np.ndarray],  # list of 1D arrays of unknown neighbor indices
         known_boundary_coords: List[List[Tuple[int, int]]],  # list of (r, c) for known neighbors
+        nbr_matrix: Optional[np.ndarray] = None,    # shape (N, 4): int32, padded with N for missing neighbors
+        red_indices: Optional[np.ndarray] = None,   # shape (N_red,): coordinates with (r + c) % 2 == 0
+        black_indices: Optional[np.ndarray] = None, # shape (N_black,): coordinates with (r + c) % 2 == 1
+        unknown_component_ids: Optional[np.ndarray] = None, # shape (N,): connected component index for each unknown
+        comp_count: int = 1,
+        projected_boundary_coords: Optional[np.ndarray] = None, # shape (N, 2): (kr, kc) closest known boundary pixel
     ) -> None:
         self.num_unknowns = num_unknowns
         self.idx_to_coord = idx_to_coord
@@ -28,10 +34,41 @@ class GridTopology:
         self.degree = degree
         self.unknown_neighbors = unknown_neighbors
         self.known_boundary_coords = known_boundary_coords
+        self.projected_boundary_coords = (
+            projected_boundary_coords
+            if projected_boundary_coords is not None
+            else np.zeros((num_unknowns, 2), dtype=np.int32)
+        )
+        self.unknown_component_ids = (
+            unknown_component_ids
+            if unknown_component_ids is not None
+            else np.ones(num_unknowns, dtype=np.int32)
+        )
+        self.comp_count = max(1, comp_count)
+
+        if nbr_matrix is not None:
+            self.nbr_matrix = nbr_matrix
+        else:
+            self.nbr_matrix = np.full((num_unknowns, 4), num_unknowns, dtype=np.int32)
+            for idx, unk in enumerate(unknown_neighbors):
+                if len(unk) > 0:
+                    self.nbr_matrix[idx, :len(unk)] = unk
+
+        if red_indices is not None and black_indices is not None:
+            self.red_indices = red_indices
+            self.black_indices = black_indices
+        else:
+            if num_unknowns > 0 and idx_to_coord is not None and len(idx_to_coord) == num_unknowns:
+                is_red = (idx_to_coord[:, 0] + idx_to_coord[:, 1]) % 2 == 0
+                self.red_indices = np.where(is_red)[0]
+                self.black_indices = np.where(~is_red)[0]
+            else:
+                self.red_indices = np.arange(0, num_unknowns, 2, dtype=np.int32)
+                self.black_indices = np.arange(1, num_unknowns, 2, dtype=np.int32)
 
 
 def build_grid_topology(mask: np.ndarray) -> GridTopology:
-    """Analyze the mask and construct 1D indexing and adjacency topology.
+    """Analyze the mask and construct 1D indexing, adjacency topology, and component labels.
 
     Args:
         mask: 2D boolean array of shape (H, W) where True = damaged (unknown).
@@ -73,6 +110,51 @@ def build_grid_topology(mask: np.ndarray) -> GridTopology:
         unknown_neighbors.append(np.array(unk_nbrs, dtype=np.int32))
         known_boundary_coords.append(kn_nbrs)
 
+    # Pre-build dense (N, 4) neighbor index matrix (padded with N where missing)
+    nbr_matrix = np.full((num_unknowns, 4), num_unknowns, dtype=np.int32)
+    for idx, unk in enumerate(unknown_neighbors):
+        if len(unk) > 0:
+            nbr_matrix[idx, :len(unk)] = unk
+
+    # Red-Black partitioning for vectorized updates
+    if num_unknowns > 0:
+        is_red = (unknown_coords[:, 0] + unknown_coords[:, 1]) % 2 == 0
+        red_indices = np.where(is_red)[0]
+        black_indices = np.where(~is_red)[0]
+    else:
+        red_indices = np.array([], dtype=np.int32)
+        black_indices = np.array([], dtype=np.int32)
+
+    # Label 8-connected components so each isolated hole uses its own local boundary values
+    from collections import deque
+    comp_offsets = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1),
+    ]
+    labeled_mask = np.zeros((height, width), dtype=np.int32)
+    comp_count = 0
+    for r in range(height):
+        for c in range(width):
+            if mask[r, c] and labeled_mask[r, c] == 0:
+                comp_count += 1
+                q = deque([(r, c)])
+                labeled_mask[r, c] = comp_count
+                while q:
+                    cr, cc = q.popleft()
+                    for dr, dc in comp_offsets:
+                        nr, nc = cr + dr, cc + dc
+                        if 0 <= nr < height and 0 <= nc < width and mask[nr, nc] and labeled_mask[nr, nc] == 0:
+                            labeled_mask[nr, nc] = comp_count
+                            q.append((nr, nc))
+
+    unknown_component_ids = np.zeros(num_unknowns, dtype=np.int32)
+    for idx, (r, c) in enumerate(unknown_coords):
+        unknown_component_ids[idx] = labeled_mask[r, c]
+
+    # Propagate adjacent known boundary colors into the mask interior.
+    projected_boundary_coords = compute_nearest_boundary_projection(mask, unknown_coords)
+
     return GridTopology(
         num_unknowns=num_unknowns,
         idx_to_coord=unknown_coords,
@@ -80,4 +162,80 @@ def build_grid_topology(mask: np.ndarray) -> GridTopology:
         degree=degree,
         unknown_neighbors=unknown_neighbors,
         known_boundary_coords=known_boundary_coords,
+        nbr_matrix=nbr_matrix,
+        red_indices=red_indices,
+        black_indices=black_indices,
+        unknown_component_ids=unknown_component_ids,
+        comp_count=comp_count,
+        projected_boundary_coords=projected_boundary_coords,
     )
+
+
+def compute_nearest_boundary_projection(
+    mask: np.ndarray,
+    unknown_coords: np.ndarray,
+) -> np.ndarray:
+    """Propagate a nearby known boundary pixel into each unknown mask location.
+
+    Uses multi-source breadth-first propagation over 8-connected mask pixels. Boundary
+    seeds choose an adjacent known pixel, and interior ties follow deterministic queue order.
+    """
+    height, width = mask.shape
+    num_unknowns = len(unknown_coords)
+    if num_unknowns == 0:
+        return np.empty((0, 2), dtype=np.int32)
+
+    nearest_r = np.full((height, width), -1, dtype=np.int32)
+    nearest_c = np.full((height, width), -1, dtype=np.int32)
+    dist = np.full((height, width), -1, dtype=np.int32)
+
+    offsets_8 = [
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (-1, 1), (1, -1), (1, 1)
+    ]
+    from collections import deque
+    queue = deque()
+
+    # Step 1: Seed queue with unknown pixels, assigning the closest known neighbor
+    for r, c in unknown_coords:
+        best_d_sq = 999
+        best_nr, best_nc = -1, -1
+        for dr, dc in offsets_8:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < height and 0 <= nc < width and not mask[nr, nc]:
+                d_sq = dr * dr + dc * dc
+                if d_sq < best_d_sq:
+                    best_d_sq = d_sq
+                    best_nr, best_nc = nr, nc
+        if best_nr != -1:
+            nearest_r[r, c] = best_nr
+            nearest_c[r, c] = best_nc
+            dist[r, c] = 1
+            queue.append((r, c))
+
+    # Step 2: Multi-source 8-connected propagation into interior unknown pixels
+    while queue:
+        cr, cc = queue.popleft()
+        tr, tc = nearest_r[cr, cc], nearest_c[cr, cc]
+        d = dist[cr, cc]
+
+        for dr, dc in offsets_8:
+            nr, nc = cr + dr, cc + dc
+            if 0 <= nr < height and 0 <= nc < width and mask[nr, nc]:
+                if dist[nr, nc] == -1:
+                    dist[nr, nc] = d + 1
+                    nearest_r[nr, nc] = tr
+                    nearest_c[nr, nc] = tc
+                    queue.append((nr, nc))
+
+    # Step 3: Extract (kr, kc) for each unknown index
+    result = np.zeros((num_unknowns, 2), dtype=np.int32)
+    for idx, (r, c) in enumerate(unknown_coords):
+        if nearest_r[r, c] != -1:
+            result[idx, 0] = nearest_r[r, c]
+            result[idx, 1] = nearest_c[r, c]
+        else:
+            result[idx, 0] = r
+            result[idx, 1] = c
+
+    return result

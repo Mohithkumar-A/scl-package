@@ -17,6 +17,7 @@ def compute_metrics(
     converged: bool,
     final_residual: float,
     time_taken: float,
+    changed_pixels: Optional[int] = None,
 ) -> dict:
     """Compile mathematically authentic computation diagnostics.
 
@@ -36,4 +37,5 @@ def compute_metrics(
         "iterations": iterations,
         "converged": converged,
         "final_residual": round(float(final_residual), 6),
+        "changed_pixels": changed_pixels,
     }
