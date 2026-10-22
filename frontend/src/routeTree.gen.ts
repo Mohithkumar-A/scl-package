@@ -11,7 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
-import { Route as ContactRouteImport } from './routes/contact'
+import { Route as BonafideRouteImport } from './routes/bonafide'
 import { Route as TheoryRouteImport } from './routes/theory'
 
 const IndexRoute = IndexRouteImport.update({
@@ -24,9 +24,9 @@ const AboutRoute = AboutRouteImport.update({
   path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ContactRoute = ContactRouteImport.update({
-  id: '/contact',
-  path: '/contact',
+const BonafideRoute = BonafideRouteImport.update({
+  id: '/bonafide',
+  path: '/bonafide',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TheoryRoute = TheoryRouteImport.update({
@@ -38,34 +38,34 @@ const TheoryRoute = TheoryRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/contact': typeof ContactRoute
+  '/bonafide': typeof BonafideRoute
   '/theory': typeof TheoryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/contact': typeof ContactRoute
+  '/bonafide': typeof BonafideRoute
   '/theory': typeof TheoryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/contact': typeof ContactRoute
+  '/bonafide': typeof BonafideRoute
   '/theory': typeof TheoryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/contact' | '/theory'
+  fullPaths: '/' | '/about' | '/bonafide' | '/theory'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/contact' | '/theory'
-  id: '__root__' | '/' | '/about' | '/contact' | '/theory'
+  to: '/' | '/about' | '/bonafide' | '/theory'
+  id: '__root__' | '/' | '/about' | '/bonafide' | '/theory'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
-  ContactRoute: typeof ContactRoute
+  BonafideRoute: typeof BonafideRoute
   TheoryRoute: typeof TheoryRoute
 }
 
@@ -85,11 +85,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/contact': {
-      id: '/contact'
-      path: '/contact'
-      fullPath: '/contact'
-      preLoaderRoute: typeof ContactRouteImport
+    '/bonafide': {
+      id: '/bonafide'
+      path: '/bonafide'
+      fullPath: '/bonafide'
+      preLoaderRoute: typeof BonafideRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/theory': {
@@ -105,7 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  ContactRoute: ContactRoute,
+  BonafideRoute: BonafideRoute,
   TheoryRoute: TheoryRoute,
 }
 export const routeTree = rootRouteImport

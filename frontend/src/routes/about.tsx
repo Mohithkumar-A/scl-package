@@ -8,12 +8,12 @@ export const Route = createFileRoute("/about")({
       { title: "About — Image Inpainting" },
       {
         name: "description",
-        content: "What image inpainting is and the linear algebra tools this project uses.",
+        content: "About the Image Inpainting Scientific Computing Lab project.",
       },
       { property: "og:title", content: "About — Image Inpainting" },
       {
         property: "og:description",
-        content: "What image inpainting is and the linear algebra tools this project uses.",
+        content: "About the Image Inpainting Scientific Computing Lab project.",
       },
     ],
   }),
@@ -26,9 +26,9 @@ function About() {
       <section className="panel p-6 leading-relaxed text-muted-foreground">
         <p>
           <span className="text-foreground font-medium">Image Inpainting</span> is the process of
-          reconstructing missing or damaged image regions using mathematical constraints. The user
-          supplies an already damaged image; the backend identifies the damaged pixels, formulates a
-          regularized least-squares problem, and solves it to recover a plausible image.
+          reconstructing missing or damaged image regions using mathematical constraints. A brush
+          mask marks the damaged pixels; the backend formulates a Tikhonov-regularized least-squares
+          problem and solves it with matrix-free LSQR to recover a plausible image.
         </p>
       </section>
       <section className="panel p-6">

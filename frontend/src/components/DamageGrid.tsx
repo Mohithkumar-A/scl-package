@@ -27,6 +27,8 @@ interface Props {
   brushCanvasRef?: React.MutableRefObject<HTMLCanvasElement | null>;
   brushPixelCount?: number;
   onBrushChange?: (count: number) => void;
+  persistedMaskState?: BrushMaskState | null;
+  onMaskStateChange?: (state: BrushMaskState) => void;
 }
 
 const brushPresets = [
@@ -47,6 +49,8 @@ export function DamageGrid({
   brushCanvasRef,
   brushPixelCount = 0,
   onBrushChange,
+  persistedMaskState,
+  onMaskStateChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -189,28 +193,46 @@ export function DamageGrid({
     const isNewPass = prevSrcRef.current !== src;
 
     if (isNewUpload || isNewPass) {
+      const isInitialMount = prevOriginalSrcRef.current === null && prevSrcRef.current === null;
       prevOriginalSrcRef.current = originalSrc ?? src ?? null;
       prevSrcRef.current = src ?? null;
 
-      const maskState = new BrushMaskState(dims);
-      maskStateRef.current = maskState;
-      const canvas = maskState.canvas;
+      const canRestoreMask = Boolean(
+        isInitialMount &&
+        persistedMaskState &&
+        persistedMaskState.canvas.width === dims.width &&
+        persistedMaskState.canvas.height === dims.height,
+      );
+      const nextMaskState =
+        canRestoreMask && persistedMaskState ? persistedMaskState : new BrushMaskState(dims);
+      maskStateRef.current = nextMaskState;
+      onMaskStateChange?.(nextMaskState);
+      const canvas = nextMaskState.canvas;
       if (brushCanvasRef) {
         brushCanvasRef.current = canvas;
       }
-      setCanUndo(false);
-      setCanRedo(false);
+      setCanUndo(nextMaskState.canUndo);
+      setCanRedo(nextMaskState.canRedo);
 
       if (isNewUpload) {
         setZoom(1);
         setShowOriginalUnderlay(false);
       }
-      onBrushChange?.(0);
+      onBrushChange?.(nextMaskState.countPixels());
       renderDisplay();
     } else {
       renderDisplay();
     }
-  }, [src, originalSrc, dims, brushCanvasRef, onBrushChange, renderDisplay]);
+  }, [
+    src,
+    originalSrc,
+    dims,
+    brushCanvasRef,
+    onBrushChange,
+    persistedMaskState,
+    onMaskStateChange,
+    renderDisplay,
+  ]);
 
   // Re-render display canvas whenever display dimensions or zoom change
   useEffect(() => {

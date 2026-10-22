@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A step-by-step explanation of the linear algebra used by the image inpainting backend.">
+    <title>How the Inpainting Math Works</title>
+    <script>
+      window.MathJax = {
+        tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+        chtml: { scale: 1.02 },
+        options: { skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"] }
+      };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1020;
+        --surface: #121a2d;
+        --surface-raised: #172239;
+        --line: #283652;
+        --text: #eaf0fb;
+        --muted: #a7b5ca;
+        --cyan: #5de1e6;
+        --blue: #8ab4ff;
+        --green: #90e2ad;
+        --amber: #ffd080;
+        --red: #ff9d9d;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(ellipse at 80% -10%, #1b3152 0, transparent 40%), var(--bg);
+        color: var(--text);
+        line-height: 1.68;
+      }
+      a { color: var(--cyan); }
+      .shell { width: min(1180px, calc(100% - 36px)); margin: 0 auto; padding: 48px 0 72px; }
+      .eyebrow { color: var(--cyan); font-size: .76rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+      h1 { max-width: 850px; margin: 10px 0 14px; font-size: clamp(2.2rem, 5vw, 4.2rem); line-height: 1.08; letter-spacing: -.045em; }
+      h2 { margin: 0 0 12px; font-size: clamp(1.55rem, 3vw, 2.25rem); line-height: 1.2; letter-spacing: -.025em; }
+      h3 { margin: 1.5rem 0 .45rem; font-size: 1.08rem; }
+      p { margin: .6rem 0 1rem; }
+      .lede { max-width: 830px; color: var(--muted); font-size: 1.12rem; }
+      .summary {
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 28px 0 30px;
+      }
+      .summary-card, .callout, .equation, .example, .panel, .tabbar {
+        border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--surface) 92%, transparent);
+      }
+      .summary-card { padding: 16px; }
+      .summary-card strong { display: block; margin-bottom: 5px; color: var(--cyan); }
+      .summary-card span { color: var(--muted); font-size: .93rem; }
+      .tabbar { display: flex; gap: 8px; padding: 9px; overflow-x: auto; position: sticky; top: 8px; z-index: 5; backdrop-filter: blur(16px); }
+      .tab {
+        flex: 0 0 auto; border: 1px solid transparent; border-radius: 10px; padding: 9px 13px;
+        background: transparent; color: var(--muted); font: inherit; font-size: .9rem; cursor: pointer;
+      }
+      .tab:hover { background: var(--surface-raised); color: var(--text); }
+      .tab[aria-selected="true"] { border-color: #297a85; background: #12333e; color: #b5fbfa; }
+      .panel { margin-top: 15px; padding: clamp(20px, 4vw, 38px); }
+      .panel[hidden] { display: none; }
+      .step { color: var(--cyan); font-size: .78rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+      .equation { margin: 20px 0; padding: 18px 20px; overflow-x: auto; background: #0e1729; }
+      .equation-label { display: block; margin-bottom: 10px; color: var(--muted); font-size: .82rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+      .callout { margin: 18px 0; padding: 15px 18px; border-left: 4px solid var(--blue); }
+      .callout.good { border-left-color: var(--green); }
+      .callout.caution { border-left-color: var(--amber); }
+      .callout strong { color: var(--text); }
+      .muted { color: var(--muted); }
+      .accent { color: var(--cyan); }
+      .good-text { color: var(--green); }
+      .amber-text { color: var(--amber); }
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .example { padding: 16px 18px; background: var(--surface-raised); }
+      .example h3 { margin-top: 0; }
+      ul, ol { padding-left: 1.3rem; }
+      li { margin: .42rem 0; }
+      code { color: #c2d5ff; background: #0b1322; padding: .12em .38em; border: 1px solid #25334c; border-radius: 6px; font-size: .9em; }
+      .matrix { min-width: 520px; }
+      .pipeline { display: grid; gap: 8px; margin: 20px 0; }
+      .pipeline div { padding: 12px 15px; border: 1px solid var(--line); border-radius: 11px; background: #0e1729; }
+      .pipeline b { color: var(--cyan); }
+      .pipeline .arrow { padding: 0; border: 0; background: none; color: var(--muted); text-align: center; line-height: 1; }
+      .controls { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; }
+      .nav-button { border: 1px solid var(--line); border-radius: 10px; padding: 10px 15px; background: var(--surface-raised); color: var(--text); font: inherit; cursor: pointer; }
+      .nav-button:hover:not(:disabled) { border-color: var(--cyan); }
+      .nav-button:disabled { opacity: .45; cursor: not-allowed; }
+      .progress-track { height: 4px; margin-top: 14px; background: #1e2b42; border-radius: 99px; overflow: hidden; }
+      .progress { width: 11.11%; height: 100%; background: linear-gradient(90deg, var(--cyan), var(--blue)); transition: width .2s ease; }
+      .sources { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--muted); font-size: .9rem; }
+      .sources code { white-space: nowrap; }
+      footer { margin-top: 34px; color: var(--muted); font-size: .85rem; }
+      mjx-container[display="true"] { margin: .7rem 0 !important; }
+      @media (max-width: 700px) {
+        .shell { width: min(100% - 22px, 1180px); padding-top: 30px; }
+        .summary, .grid-2 { grid-template-columns: 1fr; }
+        .tabbar { top: 4px; }
+        .tab { padding: 8px 10px; }
+      }
+      @media print {
+        body { color: #111; background: #fff; }
+        .shell { width: 100%; padding: 0; }
+        .tabbar, .controls, .progress-track { display: none; }
+        .panel, .summary-card, .equation, .callout, .example { break-inside: avoid; color: #111; background: #fff; border-color: #aaa; }
+        .panel[hidden] { display: block !important; margin-top: 12px; }
+        .muted, .lede, .sources, footer { color: #333; }
+        code { color: #111; background: #eee; border-color: #ccc; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div class="eyebrow">Backend mathematics · step-by-step</div>
+      <h1>How does the backend fill damaged pixels?</h1>
+      <p class="lede">
+        The backend treats marked pixels as unknown variables. It builds a sparse linear system whose equations say
+        “be smooth with your neighbors, respect the visible boundary, and stay near a local color prior,” then solves
+        that system separately for each color channel.
+      </p>
+
+      <section class="summary" aria-label="Core idea">
+        <div class="summary-card"><strong>Unknowns</strong><span>Only pixels marked white in the mask are solved for.</span></div>
+        <div class="summary-card"><strong>Model</strong><span>A discrete 4-neighbor Laplacian plus a positive Tikhonov term.</span></div>
+        <div class="summary-card"><strong>Guarantee</strong><span>Positive lambda makes the system symmetric positive definite.</span></div>
+      </section>
+
+      <div class="tabbar" role="tablist" aria-label="Math explanation steps">
+        <button class="tab" role="tab" id="tab-0" aria-controls="panel-0" aria-selected="true">Overview</button>
+        <button class="tab" role="tab" id="tab-1" aria-controls="panel-1" aria-selected="false">1 · Mask</button>
+        <button class="tab" role="tab" id="tab-2" aria-controls="panel-2" aria-selected="false">2 · Grid graph</button>
+        <button class="tab" role="tab" id="tab-3" aria-controls="panel-3" aria-selected="false">3 · Energy</button>
+        <button class="tab" role="tab" id="tab-4" aria-controls="panel-4" aria-selected="false">4 · Linear system</button>
+        <button class="tab" role="tab" id="tab-5" aria-controls="panel-5" aria-selected="false">5 · Theorems</button>
+        <button class="tab" role="tab" id="tab-6" aria-controls="panel-6" aria-selected="false">6 · Solver</button>
+        <button class="tab" role="tab" id="tab-7" aria-controls="panel-7" aria-selected="false">7 · Convergence</button>
+        <button class="tab" role="tab" id="tab-8" aria-controls="panel-8" aria-selected="false">8 · Put pixels back</button>
+      </div>
+      <div class="progress-track" aria-hidden="true"><div class="progress" id="progress"></div></div>
+
+      <section class="panel" role="tabpanel" id="panel-0" aria-labelledby="tab-0">
+        <div class="step">The whole idea</div>
+        <h2>Turn an image repair into a small mathematical problem</h2>
+        <p>
+          An image is a grid of intensity values. Most of those values are already known and must remain unchanged.
+          The mask identifies the small set that is missing or damaged. The backend solves for just that set, using
+          the intact pixels around it as fixed boundary conditions.
+        </p>
+        <div class="pipeline" aria-label="Backend computation pipeline">
+          <div><b>1. Decode</b> the image into one or more numeric channels; decode the mask into known and unknown pixels.</div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div><b>2. Index</b> unknown pixels and their 4-connected neighbors.</div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div><b>3. Assemble</b> smoothness, boundary, and prior residuals as a matrix-free least-squares operator.</div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div><b>4. Solve least squares</b> LSQR refines the prior until the objective's optimality residual is small.</div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div><b>5. Write back</b> the solution only at masked coordinates; keep every other pixel and the alpha channel intact.</div>
+        </div>
+        <div class="callout good">
+          <strong>Key distinction:</strong> this is not a neural network and it does not search for semantic objects.
+          It computes a smooth, mathematically constrained fill from the local image values around the damaged region.
+        </div>
+        <p class="muted">
+          The equations below are shown for one grayscale channel. RGB images repeat the same solve independently for
+          red, green, and blue.
+        </p>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-1" aria-labelledby="tab-1" hidden>
+        <div class="step">Step 1 · Define what is unknown</div>
+        <h2>The binary mask partitions the image</h2>
+        <p>
+          Let the image domain be \(\mathcal D\), a set of row-column pixel coordinates. The decoded mask uses the
+          convention \(1=\text{damaged}\) and \(0=\text{preserve}\). It divides the domain into:
+        </p>
+        <div class="equation">
+          \[
+            \Omega = \{p\in\mathcal D : M_p=1\},\qquad
+            \mathcal K = \mathcal D\setminus\Omega.
+          \]
+        </div>
+        <p>
+          \(\Omega\) is the unknown region; \(\mathcal K\) contains known pixels. For every \(q\in\mathcal K\), its
+          intensity \(I_q\) is a fixed boundary value. For every \(p\in\Omega\), the output intensity \(x_p\) is an
+          unknown to compute.
+        </p>
+        <div class="grid-2">
+          <div class="example"><h3>Mask threshold</h3><p>The mask is converted to grayscale; values greater than 127 become damaged/unknown, and values at or below 127 are preserved.</p></div>
+          <div class="example"><h3>Boundary requirement</h3><p>Each 8-connected damage region must touch at least one known pixel. A fully masked image has no boundary information, so the backend rejects it.</p></div>
+        </div>
+        <div class="callout">
+          <strong>Why preserve the mask exactly?</strong> It defines both the unknown vector and where the final solution is written. A display overlay can be resized for viewing, but the submitted mask has the original image dimensions.
+        </div>
+        <p class="muted">Implementation: <code>backend/app/utils/mask_io.py</code> and <code>backend/app/calculations/mask_validation.py</code>.</p>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-2" aria-labelledby="tab-2" hidden>
+        <div class="step">Step 2 · Build a graph and index the unknowns</div>
+        <h2>Convert the 2D damaged area into a vector</h2>
+        <p>
+          A pixel interacts with its valid horizontal and vertical neighbors. These are its 4-connected neighbors:
+        </p>
+        <div class="equation">
+          \[
+            \mathcal N_4(p)=\{p+(-1,0),\,p+(1,0),\,p+(0,-1),\,p+(0,1)\}\cap\mathcal D.
+          \]
+        </div>
+        <p>
+          Let \(d_p=|\mathcal N_4(p)|\), the number of in-image neighbors (usually 2–4). Each unknown pixel gets an
+          integer index \(i\in\{0,\ldots,N-1\}\), where \(N=|\Omega|\). The solution vector is
+          \(x=(x_0,\ldots,x_{N-1})^\mathsf T\). The implementation stores coordinate-to-index and index-to-coordinate
+          maps, plus each unknown's neighboring unknown indices and known boundary coordinates.
+        </p>
+        <div class="equation">
+          <span class="equation-label">A single row of the grid graph</span>
+          <div class="matrix">
+            \[
+              \begin{array}{c|ccccc}
+                \text{pixel} & \boxed{K} & \boxed{U} & \boxed{U} & \boxed{K} & \boxed{K}\\
+                \hline
+                \text{role} & \text{fixed} & x_i & x_j & \text{fixed} & \text{fixed}
+              \end{array}
+            \]
+          </div>
+        </div>
+        <p>
+          The numerical smoothness graph is 4-connected. Separately, region validation and the boundary-color
+          propagation use 8-connectivity, so diagonally touching damaged pixels count as one region.
+        </p>
+        <div class="callout caution">
+          <strong>Why not solve every image pixel?</strong> Known pixels are boundary conditions, not variables. Solving only the \(N\) damaged values saves work and guarantees that untouched pixels do not drift numerically.
+        </div>
+        <p class="muted">Implementation: <code>backend/app/calculations/difference_operators.py</code>.</p>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-3" aria-labelledby="tab-3" hidden>
+        <div class="step">Step 3 · Choose the mathematical objective</div>
+        <h2>Make neighboring pixels smooth while respecting what is known</h2>
+        <p>
+          The repair minimizes an energy with three parts: differences between adjacent unknown pixels, differences
+          between unknown pixels and fixed known neighbors, and a Tikhonov penalty that keeps each solution value near
+          a local prior \(x_p^{(0)}\).
+        </p>
+        <div class="equation">
+          <span class="equation-label">Discrete energy for one channel</span>
+          \[
+            E(x)=
+            \frac12\sum_{\substack{\{p,q\}\subset\Omega\\p\sim q}}(x_p-x_q)^2
+            +\frac12\sum_{\substack{p\in\Omega,\,q\in\mathcal K\\p\sim q}}(x_p-I_q)^2
+            +\frac{\lambda}{2}\sum_{p\in\Omega}(x_p-x_p^{(0)})^2.
+          \]
+        </div>
+        <h3>The same energy is a least-squares objective</h3>
+        <p>Each squared difference is a residual. Let \(e_p\) be the coordinate vector for damaged pixel \(p\). Stack the residual rows into a matrix \(C\), and their target values into a vector \(d\):</p>
+        <div class="equation">
+          \[
+            \begin{array}{c|c}
+              \text{constraint} & \text{residual}\\ \hline
+              \text{unknown neighbors }p,q & (e_p-e_q)^T x\\
+              \text{known boundary pixel }q & e_p^T x-I_q\\
+              \text{prior at }p & \sqrt{\lambda}e_p^T x-\sqrt{\lambda}x_p^{(0)}
+            \end{array}
+          \]
+          \[
+            E(x)=\frac12\|Cx-d\|_2^2.
+          \]
+        </div>
+        <p>This is <strong>Tikhonov-regularized least squares</strong>: least squares minimizes the sum of squared residuals, and weighting the prior residual by \(\sqrt{\lambda}\) gives the Tikhonov penalty. The backend assembles the equivalent neighbor equations directly; it does not explicitly store \(C\) or multiply \(C^TC\).</p>
+        <ol>
+          <li><strong>Unknown-to-unknown smoothness:</strong> neighboring damaged pixels are encouraged to have similar intensity.</li>
+          <li><strong>Boundary fit:</strong> the damaged area is tied to the actual surrounding known pixels.</li>
+          <li><strong>Regularization:</strong> \(\lambda>0\) keeps the solution near a local color prior and makes the system better conditioned.</li>
+        </ol>
+        <h3>How does this code choose \(x_p^{(0)}\)?</h3>
+        <p>
+          If \(p\) has one or more known 4-neighbors, the prior is their average intensity. If it lies inside the
+          damaged region and has no known 4-neighbor, the backend uses a nearby known boundary color propagated inward
+          by an 8-connected breadth-first traversal. The same prior is also used as the initial solver guess.
+        </p>
+        <div class="grid-2">
+          <div class="example"><h3>Small \(\lambda\)</h3><p>The discrete harmonic boundary fit has more influence; the prior pulls less strongly.</p></div>
+          <div class="example"><h3>Larger \(\lambda\)</h3><p>The solution is pulled more strongly toward its local prior. Extremely large values can make the fill look more like that prior.</p></div>
+        </div>
+        <div class="callout caution">
+          <strong>What “Tikhonov” means here:</strong> the code does not call an opaque image-repair library. It explicitly assembles the Laplacian-plus-identity system and solves it iteratively.
+        </div>
+        <p class="muted">The UI currently submits \(\lambda=0.01\); the backend validates the request value against its configured minimum and maximum.</p>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-4" aria-labelledby="tab-4" hidden>
+        <div class="step">Step 4 · Derive the least-squares system</div>
+        <h2>Normal equations produce \(A x=b\)</h2>
+        <p>
+          For \(E(x)=\frac12\|Cx-d\|_2^2\), setting the gradient to zero gives the least-squares normal equations
+          \(C^T(Cx-d)=0\), or \(C^TCx=C^Td\). Expanding this condition for one unknown pixel \(p\), split its 4-neighbors
+          into unknown neighbors \(\mathcal N_U(p)\) and known neighbors \(\mathcal N_K(p)\):
+        </p>
+        <div class="equation">
+          \[
+            \frac{\partial E}{\partial x_p}
+            =\sum_{q\in\mathcal N_U(p)}(x_p-x_q)
+             +\sum_{q\in\mathcal N_K(p)}(x_p-I_q)
+             +\lambda(x_p-x_p^{(0)})=0.
+          \]
+        </div>
+        <p>Collect the \(x_p\) terms. Since \(d_p=|\mathcal N_U(p)|+|\mathcal N_K(p)|\):</p>
+        <div class="equation">
+          \[
+            (d_p+\lambda)x_p
+            -\sum_{q\in\mathcal N_U(p)}x_q
+            =\sum_{q\in\mathcal N_K(p)}I_q+\lambda x_p^{(0)}.
+          \]
+        </div>
+        <p>The normal equations are mathematically equivalent to this sparse linear system:</p>
+        <div class="equation">
+          \[
+            A x=b,\qquad
+            A_{ii}=d_i+\lambda,\qquad
+            A_{ij}=\begin{cases}-1,&i\text{ and }j\text{ are 4-neighbor unknowns},\\0,&\text{otherwise},\end{cases}
+          \]
+          \[
+            b_i=\sum_{q\in\mathcal N_K(i)}I_q+\lambda x_i^{(0)}.
+          \]
+        </div>
+        <div class="example">
+          <h3>Small example</h3>
+          <p>If an interior unknown has three known neighbors with intensities \(80,100,120\) and one unknown neighbor \(x_j\), then:</p>
+          \[
+            (4+\lambda)x_i-x_j=300+\lambda x_i^{(0)}.
+          \]
+          <p class="muted">The \(4\) is the total valid neighbor count. The unknown neighbor becomes a \(-1\) matrix entry; known intensities go on the right side.</p>
+        </div>
+        <p>
+          The service does not assemble this normal matrix. It stores the damaged-to-damaged edge indices, boundary
+          indices and values, and prior weights, then evaluates \(Cv\) and \(C^Tw\) as needed by LSQR. This avoids
+          storing either a dense \(C\) or the normal matrix \(C^TC\).
+        </p>
+        <p class="muted">Implementation: <code>backend/app/calculations/tikhonov.py</code> builds the residual operator; <code>backend/app/calculations/iterative_solver.py</code> applies LSQR.</p>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-5" aria-labelledby="tab-5" hidden>
+        <div class="step">Step 5 · Why this system is well behaved</div>
+        <h2>The key theorem-level properties</h2>
+        <h3>1. Symmetric positive definiteness (SPD)</h3>
+        <p>
+          Write \(A=L_{\Omega\Omega}+\lambda I\), the unknown-region graph Laplacian block plus
+          \(\lambda I\). For any nonzero vector \(z\):
+        </p>
+        <div class="equation">
+          \[
+            z^\mathsf T A z
+            =\sum_{\substack{\{p,q\}\subset\Omega\\p\sim q}}(z_p-z_q)^2
+             +\sum_{\substack{p\in\Omega,\,q\in\mathcal K\\p\sim q}}z_p^2
+             +\lambda\sum_{p\in\Omega}z_p^2
+            >0.
+          \]
+        </div>
+        <p>
+          Each term is nonnegative and the final term is strictly positive when \(z\ne0\), because
+          \(\lambda>0\). Therefore \(A\) is symmetric positive definite: it is nonsingular and has only positive
+          eigenvalues.
+        </p>
+        <h3>2. Strict diagonal dominance and Gershgorin</h3>
+        <p>
+          In row \(i\), the diagonal is \(d_i+\lambda\). The sum of absolute off-diagonal entries is the number of
+          unknown neighbors. So the diagonal margin is:
+        </p>
+        <div class="equation">
+          \[
+            A_{ii}-\sum_{j\ne i}|A_{ij}|
+            =|\mathcal N_K(i)|+\lambda>0.
+          \]
+        </div>
+        <p>
+          The Gershgorin circle theorem places every eigenvalue in a disk centered at \(A_{ii}\) with radius equal to
+          that off-diagonal sum. These disks lie strictly to the right of zero. Since \(A\) is symmetric, its
+          eigenvalues are real and positive.
+        </p>
+        <h3>3. Nonsingular M-matrix and the discrete maximum principle</h3>
+        <p>
+          \(A\) has positive diagonal entries and nonpositive off-diagonal entries and is strictly diagonally
+          dominant; it is a nonsingular M-matrix. Its inverse is entrywise nonnegative. With known intensities and
+          priors in \([0,255]\), the ideal real-valued solution stays in that range. The image encoder still clips
+          and rounds to valid 8-bit values as a final guard.
+        </p>
+        <div class="callout good">
+          <strong>Why these matter:</strong> SPD gives a unique minimizer, strict diagonal dominance prevents a
+          singular system, and the M-matrix structure supports stable, non-oscillatory propagation of boundary
+          intensities.
+        </div>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-6" aria-labelledby="tab-6" hidden>
+        <div class="step">Step 6 · Solve the least-squares problem</div>
+        <h2>Matrix-free LSQR minimizes the residual sum</h2>
+        <p>
+          The backend applies LSQR, an iterative least-squares algorithm based on Golub-Kahan bidiagonalization.
+          It starts from the local prior estimate and refines the unknown pixel vector to minimize
+          \(\|Cx-d\|_2^2\). The smoothness, boundary, and Tikhonov residuals are evaluated directly from the
+          grid-neighbor arrays; the potentially large matrix \(C\) is never built as a dense array.
+        </p>
+        <div class="equation">
+          \[
+            \text{LSQR uses repeated products } Cv \text{ and } C^T w
+            \text{ to find } x^*=\operatorname*{argmin}_x\|Cx-d\|_2.
+          \]
+        </div>
+        <ol>
+          <li><strong>Start:</strong> use the local boundary prior as the initial estimate.</li>
+          <li><strong>Build directions:</strong> bidiagonalization alternates products with \(C\) and \(C^T\), without forming \(C^TC\).</li>
+          <li><strong>Refine:</strong> update the pixel estimate to reduce the least-squares objective.</li>
+          <li><strong>Stop:</strong> check the normal-equation optimality residual every five iterations, up to the configured limit.</li>
+        </ol>
+        <div class="callout">
+          <strong>Why LSQR?</strong> It solves the least-squares objective directly and avoids explicitly forming normal equations, which would square the system's condition number numerically.
+        </div>
+        <p class="muted">Gauss-Seidel and Jacobi remain as reference solver functions, but the reconstruction service uses LSQR. Implementation: <code>backend/app/calculations/iterative_solver.py</code> and <code>backend/app/services/reconstruction_service.py</code>.</p>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-7" aria-labelledby="tab-7" hidden>
+        <div class="step">Step 7 · Measure least-squares optimality</div>
+        <h2>The normal residual measures whether the objective has been minimized</h2>
+        <p>Least squares can have a nonzero data residual at its optimum. The stationarity condition is instead:</p>
+        <div class="equation">
+          \[
+            C^T(Cx-d)=0
+            \quad\Longleftrightarrow\quad
+            C^T(d-Cx)=0.
+          \]
+        </div>
+        <p>The backend normalizes the Euclidean length of this normal-equation residual:</p>
+        <div class="equation">
+          \[
+            \operatorname{rel\_optimality}
+            =\frac{\lVert C^T(d-Cx)\rVert_2}{\lVert C^Td\rVert_2+10^{-12}}.
+          \]
+        </div>
+        <ul>
+          <li>The solver checks this optimality residual every 5 iterations and on the last permitted iteration.</li>
+          <li>Default stopping settings are tolerance \(10^{-4}\) and at most 500 iterations; both can be configured on the backend.</li>
+          <li>If the tolerance is reached, the response reports <code>converged: true</code>. If the iteration ceiling is reached first, it reports <code>converged: false</code> with the final optimality residual.</li>
+          <li>Non-finite iterates trigger a numerical-instability error.</li>
+        </ul>
+        <div class="callout caution">
+          <strong>Residual is not image-quality truth.</strong> It says whether the computed vector solves this model's equations. It does not say that the result matches the unknown original photograph. That is why real backend responses leave PSNR and SSIM null without a clean reference image.
+        </div>
+      </section>
+
+      <section class="panel" role="tabpanel" id="panel-8" aria-labelledby="tab-8" hidden>
+        <div class="step">Step 8 · Reconstruct the image</div>
+        <h2>Only the damaged coordinates are replaced</h2>
+        <p>
+          The backend starts the output channel array as a copy of the decoded input. After solving one channel, it
+          inserts \(x_i\) at the coordinate associated with unknown index \(i\). It repeats this for each color
+          channel.
+        </p>
+        <div class="equation">
+          \[
+            I_{\mathrm{out}}(p)=
+            \begin{cases}
+              x_p,&p\in\Omega,\\
+              I_{\mathrm{in}}(p),&p\in\mathcal K.
+            \end{cases}
+          \]
+        </div>
+        <p>
+          Therefore preserved RGB/grayscale samples are copied without being recomputed. If the original image has
+          alpha transparency, that alpha array is carried through unchanged. At encoding, channel values are clipped
+          to \([0,255]\), rounded, and written as PNG.
+        </p>
+        <div class="grid-2">
+          <div class="example"><h3>What the method is good at</h3><p>Small holes, scratches, and smooth transitions where local continuation from nearby pixels is a reasonable model.</p></div>
+          <div class="example"><h3>Its limitation</h3><p>It does not infer object semantics or recover texture that is not encoded in nearby boundary values. Large holes and sharp patterns can look overly smooth.</p></div>
+        </div>
+        <div class="callout good">
+          <strong>One-sentence viva answer:</strong> “We treat masked pixels as unknowns, minimize the sum of squared smoothness, boundary, and Tikhonov-prior residuals using matrix-free LSQR, and write the solved values only into the mask.”
+        </div>
+        <p class="muted">
+          End-to-end implementation: <code>backend/app/services/reconstruction_service.py</code>.
+        </p>
+      </section>
+
+      <div class="controls" aria-label="Step navigation">
+        <button class="nav-button" id="previous" type="button" disabled>← Previous</button>
+        <span id="step-indicator" class="muted" aria-live="polite">Overview · 1 of 9</span>
+        <button class="nav-button" id="next" type="button">Next →</button>
+      </div>
+      <div class="sources">
+        <strong>Project source files:</strong>
+        <code>backend/app/utils/mask_io.py</code>,
+        <code>backend/app/calculations/mask_validation.py</code>,
+        <code>backend/app/calculations/difference_operators.py</code>,
+        <code>backend/app/calculations/tikhonov.py</code>,
+        <code>backend/app/calculations/iterative_solver.py</code>,
+        <code>backend/app/services/reconstruction_service.py</code>.
+      </div>
+      <footer>
+        The equations describe the current backend implementation. The displayed default lambda is the UI's fixed
+        value; backend API clients may send another positive value within configured bounds.
+      </footer>
+    </main>
+    <script>
+      (() => {
+        const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+        const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+        const progress = document.getElementById("progress");
+        const previous = document.getElementById("previous");
+        const next = document.getElementById("next");
+        const indicator = document.getElementById("step-indicator");
+        const names = ["Overview", "Mask", "Grid graph", "Energy", "Linear system", "Theorems", "Solver", "Convergence", "Put pixels back"];
+        let active = 0;
+
+        function show(index, moveFocus = false) {
+          active = Math.max(0, Math.min(tabs.length - 1, index));
+          tabs.forEach((tab, i) => {
+            const selected = i === active;
+            tab.setAttribute("aria-selected", String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+            panels[i].hidden = !selected;
+          });
+          previous.disabled = active === 0;
+          next.disabled = active === tabs.length - 1;
+          progress.style.width = (((active + 1) / tabs.length) * 100) + "%";
+          indicator.textContent = names[active] + " · " + (active + 1) + " of " + tabs.length;
+          if (moveFocus) tabs[active].focus();
+          if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([panels[active]]);
+        }
+
+        tabs.forEach((tab, index) => {
+          tab.addEventListener("click", () => show(index));
+          tab.addEventListener("keydown", (event) => {
+            if (event.key === "ArrowRight") { event.preventDefault(); show((active + 1) % tabs.length, true); }
+            if (event.key === "ArrowLeft") { event.preventDefault(); show((active - 1 + tabs.length) % tabs.length, true); }
+            if (event.key === "Home") { event.preventDefault(); show(0, true); }
+            if (event.key === "End") { event.preventDefault(); show(tabs.length - 1, true); }
+          });
+        });
+        previous.addEventListener("click", () => show(active - 1));
+        next.addEventListener("click", () => show(active + 1));
+        show(0);
+      })();
+    </script>
+  </body>
+</html>

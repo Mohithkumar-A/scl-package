@@ -32,10 +32,35 @@ export class BrushMaskState {
   private readonly maxHistorySnapshots = 30;
   private readonly maxHistoryBytes = 128 * 1024 * 1024;
 
-  constructor(readonly dimensions: MaskDimensions) {
+  constructor(
+    readonly dimensions: MaskDimensions,
+    initialPixels?: Uint8Array,
+  ) {
     this.canvas = document.createElement("canvas");
     this.canvas.width = dimensions.width;
     this.canvas.height = dimensions.height;
+    if (initialPixels) this.replaceBinaryPixels(initialPixels);
+  }
+
+  /** Replace the mask from intrinsic-resolution 0/1 pixel data without creating undo history. */
+  replaceBinaryPixels(pixels: Uint8Array): void {
+    const expectedLength = this.dimensions.width * this.dimensions.height;
+    if (pixels.length !== expectedLength) {
+      throw new Error("Damage mask dimensions must match the uploaded image.");
+    }
+    const context = this.context();
+    const imageData = context.createImageData(this.dimensions.width, this.dimensions.height);
+    for (let pixel = 0; pixel < pixels.length; pixel++) {
+      if (pixels[pixel] === 0) continue;
+      const offset = pixel * 4;
+      imageData.data[offset] = 255;
+      imageData.data[offset + 1] = 255;
+      imageData.data[offset + 2] = 255;
+      imageData.data[offset + 3] = 255;
+    }
+    context.putImageData(imageData, 0, 0);
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
   }
 
   get canUndo(): boolean {

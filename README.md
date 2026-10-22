@@ -1,16 +1,25 @@
 # Image Inpainting — Linear Algebra Restoration
 
-A full-stack image restoration demo. The frontend lets you paint damaged regions on an uploaded image; the FastAPI backend reconstructs the marked pixels with a Tikhonov-regularized discrete Laplacian and an iterative solver.
+A full-stack image restoration demo. The frontend lets you paint damaged regions on an uploaded image; the FastAPI backend reconstructs the marked pixels by minimizing a Tikhonov-regularized least-squares smoothness model with matrix-free LSQR.
 
 ## Project layout
 
 - `frontend/` — React, TypeScript, Vite, brush-mask utilities, and UI tests.
 - `backend/` — FastAPI API, image and mask validation, numerical solver, and pytest suite.
 - `assets/` — Sample original and reconstructed images. The pair is `Aged Alpine Lake Mountain Vista.png` and `Aged Alpine Lake Mountain Vista_reconstructed.png`.
+- [`MATH_WALKTHROUGH.html`](MATH_WALKTHROUGH.html) — Interactive explanation of the reconstruction equations, including its regularized least-squares formulation.
 
 ## Run locally
 
 Requirements: Node.js 20+, npm, and Python 3.9+ (Python 3.11 recommended).
+
+To start both local servers with one command from the repository root:
+
+```bash
+./dev.sh
+```
+
+The script prepares missing dependencies, activates the backend virtual environment, and starts both local servers. It prefers backend port `8000` and frontend port `5173`, choosing the next available port if either is already in use. It prints the actual URLs and configures the frontend to use the selected backend port. Open the printed frontend URL and press `Ctrl+C` in the terminal to stop both servers. The manual setup steps below are available if you prefer to start each service separately.
 
 Start the backend in one terminal:
 

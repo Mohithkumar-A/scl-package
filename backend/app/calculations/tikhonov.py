@@ -1,25 +1,10 @@
-"""Mathematical formulation of the Tikhonov Regularization Linear System.
+"""Assemble Tikhonov-regularized least-squares models for image inpainting.
 
-Objective:
-    min_x  || B x - b ||_2^2  +  lambda || L x - c ||_2^2
-
-In our discrete harmonic inpainting formulation:
-    - Unknown pixels: x in R^N
-    - Known pixels: fixed Dirichlet boundary values from undamaged regions.
-    - Smoothness operator L: discrete 2D Laplacian operator.
-    - Regularization parameter lambda: enforces strict diagonal dominance and stability.
-
-Euler-Lagrange optimality condition:
-    (L + lambda * I) x = b
-
-For each unknown pixel k at grid position (r, c):
-    (d_k + lambda) x_k - sum_{m in unk_nbrs(k)} x_m = sum_{(nr, nc) in kn_nbrs(k)} I(nr, nc) + lambda * x_0(k)
-
-where:
-    - d_k is the number of valid spatial neighbors inside the image bounds (2 <= d_k <= 4).
-    - unk_nbrs(k) are neighboring pixels that are also unknown.
-    - kn_nbrs(k) are neighboring pixels that are known (undamaged).
-    - x_0(k) is the boundary prior (local mean of known neighbors).
+The service objective is min_x 1/2 ||C x - d||_2^2, with residual rows for
+unknown-neighbor differences, known-boundary values, and prior penalties. The
+matrix-free system below represents C and its target d for LSQR. A direct
+normal-system representation is retained for the reference Jacobi/Gauss-Seidel
+solvers and their analytical examples.
 """
 
 from __future__ import annotations
@@ -48,6 +33,102 @@ class TikhonovSystem:
         self.b = b
         self.initial_guess = initial_guess
         self.topology = topology
+
+
+class LeastSquaresSystem:
+    """Matrix-free residual system for min_x 1/2 ||C x - target||_2^2."""
+
+    def __init__(
+        self,
+        num_unknowns: int,
+        edge_i: np.ndarray,
+        edge_j: np.ndarray,
+        boundary_i: np.ndarray,
+        boundary_values: np.ndarray,
+        sqrt_lambda: float,
+        prior: np.ndarray,
+    ) -> None:
+        self.num_unknowns = num_unknowns
+        self.edge_i = edge_i
+        self.edge_j = edge_j
+        self.boundary_i = boundary_i
+        self.boundary_values = boundary_values
+        self.sqrt_lambda = sqrt_lambda
+        self.prior = prior
+        self.target = np.concatenate((
+            np.zeros(len(edge_i), dtype=np.float64),
+            boundary_values.astype(np.float64, copy=False),
+            sqrt_lambda * prior,
+        ))
+
+    @property
+    def num_rows(self) -> int:
+        return len(self.edge_i) + len(self.boundary_i) + self.num_unknowns
+
+    def matvec(self, x: np.ndarray) -> np.ndarray:
+        """Compute Cx for edge, boundary, and prior residual rows."""
+        return np.concatenate((
+            x[self.edge_i] - x[self.edge_j],
+            x[self.boundary_i],
+            self.sqrt_lambda * x,
+        ))
+
+    def rmatvec(self, values: np.ndarray) -> np.ndarray:
+        """Compute C^T values without constructing the sparse matrix C."""
+        n_edges = len(self.edge_i)
+        n_boundary = len(self.boundary_i)
+        edge_values = values[:n_edges]
+        boundary_values = values[n_edges:n_edges + n_boundary]
+        prior_values = values[n_edges + n_boundary:]
+        result = np.zeros(self.num_unknowns, dtype=np.float64)
+        np.add.at(result, self.edge_i, edge_values)
+        np.add.at(result, self.edge_j, -edge_values)
+        np.add.at(result, self.boundary_i, boundary_values)
+        result += self.sqrt_lambda * prior_values
+        return result
+
+
+def construct_least_squares_system(
+    channel: np.ndarray,
+    topology: GridTopology,
+    lambda_val: float,
+) -> LeastSquaresSystem:
+    """Assemble the residual operator C and targets for regularized least squares."""
+    # Reuse the established prior construction and lambda validation so the new
+    # least-squares formulation preserves the existing objective exactly.
+    prior_system = construct_tikhonov_system(channel, topology, lambda_val)
+    edge_count = sum(int(np.count_nonzero(neighbors > i)) for i, neighbors in enumerate(topology.unknown_neighbors))
+    boundary_count = sum(len(coords) for coords in topology.known_boundary_coords)
+    edge_i = np.fromiter(
+        (i for i, neighbors in enumerate(topology.unknown_neighbors) for j in neighbors if i < int(j)),
+        dtype=np.int32,
+        count=edge_count,
+    )
+    edge_j = np.fromiter(
+        (int(j) for i, neighbors in enumerate(topology.unknown_neighbors) for j in neighbors if i < int(j)),
+        dtype=np.int32,
+        count=edge_count,
+    )
+    boundary_i = np.fromiter(
+        (i for i, coords in enumerate(topology.known_boundary_coords) for _ in coords),
+        dtype=np.int32,
+        count=boundary_count,
+    )
+    boundary_values = np.fromiter(
+        (float(channel[r, c]) for coords in topology.known_boundary_coords for r, c in coords),
+        dtype=np.float64,
+        count=boundary_count,
+    )
+
+    return LeastSquaresSystem(
+        num_unknowns=topology.num_unknowns,
+        edge_i=edge_i,
+        edge_j=edge_j,
+        boundary_i=boundary_i,
+        boundary_values=boundary_values,
+        sqrt_lambda=float(np.sqrt(lambda_val)),
+        prior=prior_system.initial_guess,
+    )
 
 
 def construct_tikhonov_system(

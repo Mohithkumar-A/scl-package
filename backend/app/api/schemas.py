@@ -33,7 +33,7 @@ class ReconstructionResponse(BaseModel):
     )
     reconstruction_error: float = Field(
         ...,
-        description="Normalized linear system residual norm ||b - Ax|| / (||b|| + eps) upon solver completion.",
+        description="Relative least-squares optimality residual ||C^T(d-Cx)|| / (||C^T d|| + eps) upon solver completion.",
     )
     time_taken: float = Field(
         ...,
