@@ -2,11 +2,11 @@ import { Sigma } from "lucide-react";
 import { Tex } from "./Tex";
 
 const vars: [string, string][] = [
-  ["x", "reconstructed image represented as a vector"],
-  ["A", "sampling/operator matrix representing known pixels"],
-  ["b", "observed pixel values"],
-  ["L", "smoothness/difference regularization operator"],
-  ["\\lambda", "regularization parameter"],
+  ["x", "intensities of the masked pixels only"],
+  ["C", "residual operator for smoothness, boundary and prior terms"],
+  ["d", "target values for the residual rows"],
+  ["x^{(0)}", "local prior estimated from nearby known pixels"],
+  ["\\lambda", "Tikhonov prior weight; UI default is 0.01"],
 ];
 
 export function MathematicalModel() {
@@ -16,19 +16,24 @@ export function MathematicalModel() {
         <Sigma className="h-4 w-4 text-accent" /> Mathematical Model
       </h2>
       <div className="overflow-x-auto rounded-xl border border-border bg-surface px-2 py-3 text-sm">
-        <Tex block math="\min_{x}\; \|Ax-b\|_2^2 + \lambda\|Lx\|_2^2" />
+        <Tex block math="\\min_x \\frac12\\|Cx-d\\|_2^2" />
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">Normal equations:</p>
+      <p className="mt-3 text-xs text-muted-foreground">Least-squares optimality condition:</p>
       <div className="overflow-x-auto rounded-xl border border-border bg-surface px-2 py-2 text-sm">
-        <Tex block math="(A^TA + \lambda L^TL)\,x = A^Tb" />
+        <Tex block math="C^T(Cx-d)=0" />
       </div>
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        The prior residual is weighted by <Tex math="\\sqrt{\\lambda}" />, giving the penalty{" "}
+        <Tex math="\\frac{\\lambda}{2}\\|x-x^{(0)}\\|_2^2" />. The backend applies the residual
+        operator and its transpose with matrix-free LSQR.
+      </p>
       <ul className="mt-4 space-y-2">
-        {vars.map(([s, d]) => (
-          <li key={s} className="flex gap-3 text-xs">
+        {vars.map(([symbol, description]) => (
+          <li key={symbol} className="flex gap-3 text-xs">
             <span className="w-5 shrink-0 text-primary">
-              <Tex math={s} />
+              <Tex math={symbol} />
             </span>
-            <span className="text-muted-foreground">{d}</span>
+            <span className="text-muted-foreground">{description}</span>
           </li>
         ))}
       </ul>

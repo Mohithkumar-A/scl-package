@@ -7,10 +7,10 @@ import numpy as np
 from app.api.errors import InpaintingException
 from app.api.schemas import ReconstructionResponse
 from app.calculations.difference_operators import build_grid_topology
-from app.calculations.iterative_solver import solve_gauss_seidel
+from app.calculations.iterative_solver import solve_least_squares
 from app.calculations.mask_validation import validate_mask
 from app.calculations.metrics import compute_metrics
-from app.calculations.tikhonov import construct_tikhonov_system
+from app.calculations.tikhonov import construct_least_squares_system
 from app.config import settings
 from app.utils.image_io import decode_image, encode_image_to_base64_png
 from app.utils.mask_io import decode_binary_mask
@@ -67,9 +67,9 @@ def reconstruct_image_service(
 
         for c in range(num_channels):
             channel_data = decoded.channels[:, :, c]
-            system = construct_tikhonov_system(channel_data, topology, lambda_value)
+            system = construct_least_squares_system(channel_data, topology, lambda_value)
 
-            solver_res = solve_gauss_seidel(
+            solver_res = solve_least_squares(
                 system=system,
                 max_iterations=settings.solver_max_iterations,
                 tolerance=settings.solver_tolerance,

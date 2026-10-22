@@ -5,7 +5,7 @@ const links = [
   { to: "/", label: "Home" },
   { to: "/about", label: "About" },
   { to: "/theory", label: "Theory" },
-  { to: "/contact", label: "Contact" },
+  { to: "/bonafide", label: "Bonafide" },
 ] as const;
 
 export function Navbar() {

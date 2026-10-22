@@ -13,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Navbar } from "../components/Navbar";
+import { StudioProvider } from "../state/studio-context";
 
 function NotFoundComponent() {
   return (
@@ -122,10 +123,12 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Navbar />
-      <Outlet />
-    </QueryClientProvider>
+    <StudioProvider>
+      <QueryClientProvider client={queryClient}>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Navbar />
+        <Outlet />
+      </QueryClientProvider>
+    </StudioProvider>
   );
 }

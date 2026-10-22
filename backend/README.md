@@ -12,8 +12,8 @@ This backend services the interactive web frontend for image inpainting. The fro
 
 ### Key Principles
 - **No Black Boxes**: Does **not** use `cv2.inpaint`, `skimage.restoration.inpaint_biharmonic`, deep learning models, pretrained weights, or opaque direct solvers (`numpy.linalg.solve`).
-- **Explainable Numerical Linear Algebra**: Forms a regularized Dirichlet-Laplacian system and implements **Red-Black Gauss-Seidel** and **Jacobi** relaxation. The reconstruction service currently uses Gauss-Seidel.
-- **Authentic Metrics**: Refuses to fabricate PSNR or SSIM metrics when no pristine ground-truth image exists. Reports verified linear system residuals $\|b - Ax\|_2 / (\|b\|_2 + \epsilon)$, iteration counts, convergence status, and exact execution runtimes.
+- **Explainable Numerical Linear Algebra**: Builds the smoothness, boundary, and Tikhonov prior residuals and solves the resulting regularized least-squares problem with a matrix-free LSQR implementation. Gauss-Seidel and Jacobi routines remain available as reference solvers; the reconstruction service uses LSQR.
+- **Authentic Metrics**: Refuses to fabricate PSNR or SSIM metrics when no pristine ground-truth image exists. Reports the least-squares optimality residual $\|C^T(d-Cx)\|_2 / (\|C^Td\|_2 + \epsilon)$, iteration counts, convergence status, and execution runtimes.
 - **Zero Modification of Preserved Pixels**: All undamaged pixels ($M_{i,j} = 0$) are preserved bit-for-bit in the reconstructed image. Alpha transparency channels are preserved untouched.
 
 ---
@@ -36,8 +36,8 @@ backend/
 │   ├── calculations/
 │   │   ├── mask_validation.py      # 8-connectivity analysis, region size & boundary verification
 │   │   ├── difference_operators.py # Graph topology, connected components, boundary projection
-│   │   ├── tikhonov.py             # Euler-Lagrange Tikhonov linear system assembly (A x = b)
-│   │   ├── iterative_solver.py     # Custom transparent Gauss-Seidel & Jacobi solvers
+│   │   ├── tikhonov.py             # Tikhonov-regularized residual operator assembly
+│   │   ├── iterative_solver.py     # Matrix-free LSQR plus reference Gauss-Seidel & Jacobi solvers
 │   │   └── metrics.py              # Verifiable mathematical diagnostics
 │   └── utils/
 │       ├── image_io.py             # Pillow decoding/encoding, RGB/RGBA/Grayscale normalizer
@@ -216,7 +216,7 @@ Performs Tikhonov regularization inpainting on an uploaded image and binary mask
 
 ---
 
-## 8. Mathematical Formulation: Tikhonov Regularization
+## 8. Mathematical Formulation: Regularized Least Squares
 
 ### 8.1 Continuous Energy Formulation
 Image inpainting seeks to fill in a missing domain $\Omega \subset D$ by extending known Dirichlet boundary conditions $\partial\Omega$ into $\Omega$ smoothly. The standard Dirichlet energy minimization is:
@@ -224,20 +224,27 @@ $$\min_{u} \int_{\Omega} \|\nabla u(x, y)\|^2 \, dx dy \quad \text{subject to } 
 Its Euler-Lagrange equation is Laplace's equation (harmonic inpainting):
 $$\Delta u = \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} = 0 \quad \text{in } \Omega, \quad u|_{\partial\Omega} = g$$
 
-### 8.2 Tikhonov Regularization Formulation
-Pure harmonic inpainting can be underdetermined or ill-conditioned if boundary data is sparse or when spatial derivatives lack regularization. We formulate the problem under the classic **Tikhonov Regularization** framework:
-$$\min_x \frac{1}{2} x^T L x - c^T x + \frac{\lambda}{2} \|x - x_0\|_2^2$$
-where:
-- $x \in \mathbb{R}^N$ is the vector of $N$ unknown pixel intensities in the damaged domain $\Omega$.
-- $L$ is the discrete Laplacian operator representing the **smoothness penalty**.
-- $c \in \mathbb{R}^N$ encapsulates the boundary constraints contributed by known neighbor pixels.
-- $\lambda > 0$ is the Tikhonov regularization parameter.
-- $x_0 \in \mathbb{R}^N$ is the local prior. The implementation uses the mean of known 4-neighbors where available and a propagated nearby boundary color for interior pixels.
+### 8.2 Residual-based least-squares formulation
+The implemented energy can be written as a least-squares problem by stacking one residual for each pairwise smoothness constraint, known boundary neighbor, and prior value. Let $e_p$ be the coordinate vector for unknown pixel $p$. Construct a residual matrix $C$ and target vector $d$ with rows of these forms:
 
-Taking the gradient with respect to $x$ and setting to zero yields the regularized linear system:
-$$(L + \lambda I) x = c + \lambda x_0$$
-Let $A = L + \lambda I$ and $b = c + \lambda x_0$:
-$$A x = b$$
+- Unknown-to-unknown edge $\{p,q\}$: row $(e_p-e_q)^T$ with target $0$.
+- Unknown-to-known edge $(p,q)$: row $e_p^T$ with target $I_q$.
+- Prior at unknown pixel $p$: row $\sqrt{\lambda}e_p^T$ with target $\sqrt{\lambda}x_{0,p}$.
+
+Then the backend's objective is exactly the regularized least-squares problem:
+$$\min_x \frac{1}{2}\|Cx-d\|_2^2.$$
+
+The normal-equation optimality condition is:
+$$C^T Cx=C^T d.$$
+
+For this set of residuals, $C^T C$ is the unknown-pixel graph Laplacian with boundary contributions plus $\lambda I$, and $C^T d$ contains known boundary intensities plus the prior term. These normal equations are mathematically equivalent to the familiar system $Ax=b$. The reconstruction service stores edge and boundary indices and evaluates $Cv$ and $C^Tw$ on demand for LSQR; it does **not** build a dense $C$ matrix or explicitly multiply $C^TC$.
+
+Expanding the squared residuals gives the energy:
+$$E(x)=\frac{1}{2}\sum_{\{p,q\}\subset\Omega,\ p\sim q}(x_p-x_q)^2+\frac{1}{2}\sum_{p\in\Omega,\ q\in\mathcal K,\ p\sim q}(x_p-I_q)^2+\frac{\lambda}{2}\sum_{p\in\Omega}(x_p-x_{0,p})^2.$$
+
+Here $x\in\mathbb{R}^N$ contains the unknown pixel intensities, $\mathcal K$ denotes known pixels adjacent to the unknown region, and $p\sim q$ means 4-neighbor adjacency. The regularization parameter $\lambda>0$ controls the prior penalty. The implementation uses the mean of known 4-neighbors as $x_{0,p}$ where available, and a propagated nearby boundary color for interior pixels.
+
+This is **Tikhonov-regularized least squares**, not unregularized least squares. Removing the prior residuals would remove $\lambda I$ and $\lambda x_0$ from the system, changing its stability and solution.
 
 ---
 
@@ -263,29 +270,17 @@ For each unknown pixel $k \in \{0, \dots, N-1\}$ located at grid coordinates $(r
 
 ---
 
-## 10. Core Numerical Solver (Gauss-Seidel & Jacobi)
+## 10. Core Numerical Solver: Matrix-free LSQR
 
-Because $A$ is an M-matrix, classical iterative splitting methods converge **unconditionally** from any initial iterate $x^{(0)}$.
+The service solves $\min_x \frac12\|Cx-d\|_2^2$ directly with LSQR, an iterative least-squares algorithm based on Golub-Kahan bidiagonalization. It does not explicitly form $C^TC$, which avoids squaring the condition number as happens when solving normal equations numerically.
 
-### 10.1 Red-Black Gauss-Seidel Update
-Unknowns are partitioned by checkerboard parity on the image grid. The red group is updated from the current black values, followed by the black group using the newly updated red values. The two vectorized group updates implement a Gauss-Seidel ordering for the 4-connected grid:
-$$x_i^{(k+1)} = \frac{b_i + \sum_{m \in \text{unknown neighbors}} x_m}{\text{diag}_i}$$
-where the most recently updated values of $x_m$ are used immediately.
+The residual operator has three row groups: damaged-to-damaged differences, damaged-to-known boundary differences, and prior residuals weighted by $\sqrt{\lambda}$. The implementation evaluates $Cv$ and $C^Tw$ from the grid edge and boundary index arrays, without storing a dense residual matrix.
 
-### 10.2 Jacobi Update
-In Jacobi iteration, all updates are computed simultaneously from the previous iterate $x^{(k)}$:
-$$x_i^{(k+1)} = \frac{b_i + \sum_{m \in \text{unknown neighbors}} x_m^{(k)}}{\text{diag}_i}$$
+LSQR starts from the local prior estimate and iteratively refines it. Every five iterations (and on the final iteration), convergence is checked using the relative least-squares optimality residual:
+$$\text{rel\_optimality} = \frac{\|C^T(d-Cx)\|_2}{\|C^Td\|_2 + 10^{-12}}.$$
+The solver stops when this value is below the configured tolerance (default $10^{-4}$), reaches the configured iteration ceiling (default 500), or encounters a non-finite iterate. A nonzero data residual is expected in least squares and does not by itself mean the solver failed; the normal-equation residual measures whether the objective has been minimized.
 
-### 10.3 Residual & Convergence Criteria
-At each iteration, we monitor the explicit residual vector:
-$$r = b - A x$$
-where $(Ax)_i = \text{diag}_i x_i - \sum_{m \in \text{unknown neighbors}} x_m$.
-The relative residual norm is:
-$$\text{rel\_res} = \frac{\|r\|_2}{\|b\|_2 + 10^{-12}}$$
-The solver terminates when:
-1. **Convergence**: $\text{rel\_res} < \text{tolerance}$ (default $10^{-4}$).
-2. **Safety Ceiling**: Iteration reaches `max_iterations` (default $500$).
-3. **Instability Detection**: If any element of $x$ becomes `NaN` or `Inf`, an immediate exception is raised.
+The legacy Gauss-Seidel and Jacobi functions remain in `iterative_solver.py` for comparison and existing analytical examples. The reconstruction service does not call them.
 
 ---
 
@@ -317,6 +312,6 @@ The current suite completes with 29 passing tests. Exact per-file progress outpu
 1. **Why is the system strictly diagonally dominant?**
    Because $A_{k, k} = d_k + \lambda$ and $\sum_{m \ne k} |A_{k, m}| = |\text{unknown neighbors}|$. The difference is $|\text{known neighbors}| + \lambda \ge \lambda > 0$.
 2. **Why can't we compute PSNR or SSIM for real user uploads?**
-   PSNR and SSIM require an original uncorrupted ground-truth image $I_{\text{clean}}$. For user-uploaded damaged images, no clean reference exists. Computing PSNR against the damaged image would be misleading. The system truthfully reports `null` for PSNR/SSIM and outputs the actual linear system residual norm.
+   PSNR and SSIM require an original uncorrupted ground-truth image $I_{\text{clean}}$. For user-uploaded damaged images, no clean reference exists. Computing PSNR against the damaged image would be misleading. The system truthfully reports `null` for PSNR/SSIM and outputs the relative least-squares optimality residual $\|C^T(d-Cx)\|_2/(\|C^Td\|_2+\epsilon)$.
 3. **What are the limitations of smoothness-based inpainting?**
    Tikhonov regularization with a discrete Laplacian prior enforces minimal curvature ($C^2$ smoothness). It excels at smooth textures, gradients, scratches, and modest holes. However, it naturally blurs sharp high-frequency edges and complex stochastic textures that span across large damage regions.

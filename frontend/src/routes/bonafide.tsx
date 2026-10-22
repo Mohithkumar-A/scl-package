@@ -1,16 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageShell } from "@/components/PageShell";
 
-export const Route = createFileRoute("/contact")({
+export const Route = createFileRoute("/bonafide")({
   head: () => ({
     meta: [
-      { title: "Contact — Image Inpainting" },
+      { title: "Bonafide — Image Inpainting" },
       {
         name: "description",
         content:
           "Bonafide project record for the Image Inpainting Scientific Computing Lab project.",
       },
-      { property: "og:title", content: "Contact — Image Inpainting" },
+      { property: "og:title", content: "Bonafide — Image Inpainting" },
       {
         property: "og:description",
         content:
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/contact")({
       },
     ],
   }),
-  component: Contact,
+  component: Bonafide,
 });
 
 const team = [
@@ -26,9 +26,9 @@ const team = [
   { name: "Srriram A R", reg: "25PD34" },
 ];
 
-function Contact() {
+function Bonafide() {
   return (
-    <PageShell title="Contact" subtitle="Project bonafide record">
+    <PageShell title="Bonafide" subtitle="Project bonafide record">
       <section className="panel mx-auto max-w-2xl border-2 border-primary/30 p-8 text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-muted-foreground">
           Scientific Computing Lab
@@ -62,7 +62,7 @@ function Contact() {
               SCL Package
             </h3>
             <div className="mt-2 flex flex-wrap gap-2">
-              {["Python", "NumPy", "SciPy"].map((t) => (
+              {["Python", "NumPy", "FastAPI", "Matrix-free LSQR"].map((t) => (
                 <span
                   key={t}
                   className="rounded-lg border border-border bg-card px-3 py-1 font-mono text-xs"

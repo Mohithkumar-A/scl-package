@@ -1,7 +1,7 @@
 """Scientific calculation of verifiable mathematical diagnostics.
 
 Strictly avoids fabricating PSNR or SSIM when a clean ground-truth reference
-is unavailable. Evaluates exact linear system residuals and convergence status.
+is unavailable. Reports least-squares optimality residuals and convergence status.
 """
 
 from __future__ import annotations

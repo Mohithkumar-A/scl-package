@@ -12,14 +12,14 @@ const steps = [
     m: "M \\in \\{0,1\\}^{n}",
   },
   {
-    t: "Formulate the Problem",
-    d: "Construct the linear system using known pixels and regularization constraints.",
-    m: "Ax \\approx b",
+    t: "Build Residuals",
+    d: "Create smoothness, known-boundary, and Tikhonov-prior residuals.",
+    m: "E(x)=\\frac12\\|Cx-d\\|_2^2",
   },
   {
-    t: "Solve Using Linear Algebra",
-    d: "Solve the regularized least-squares system numerically.",
-    m: "(A^TA+\\lambda L^TL)x = A^Tb",
+    t: "Solve with LSQR",
+    d: "Apply matrix-free products with the residual operator and its transpose.",
+    m: "C^T(Cx-d)=0",
   },
   {
     t: "Reconstruct",

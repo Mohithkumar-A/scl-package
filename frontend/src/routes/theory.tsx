@@ -10,13 +10,13 @@ export const Route = createFileRoute("/theory")({
       {
         name: "description",
         content:
-          "Problem formulation, null space, Tikhonov regularization and normal equations for image inpainting.",
+          "The implemented image inpainting model: regularized least squares solved with matrix-free LSQR.",
       },
       { property: "og:title", content: "Theory — Image Inpainting" },
       {
         property: "og:description",
         content:
-          "Problem formulation, null space, Tikhonov regularization and normal equations for image inpainting.",
+          "The implemented image inpainting model: regularized least squares solved with matrix-free LSQR.",
       },
     ],
   }),
@@ -47,64 +47,81 @@ function Theory() {
   return (
     <PageShell
       title="Theory"
-      subtitle="The linear algebra behind the reconstruction — useful for viva preparation."
+      subtitle="The equations below match the backend's residual model, Tikhonov prior, and matrix-free LSQR solve."
     >
-      <Block n={1} title="Problem Formulation">
+      <Block n={1} title="Unknown pixels and fixed image data">
         <p>
-          Flatten an <Tex math="m\times n" /> image into a vector <Tex math="x\in\mathbb{R}^{N}" />,{" "}
-          <Tex math="N=mn" />. Let <Tex math="A\in\mathbb{R}^{k\times N}" /> select the{" "}
-          <Tex math="k" /> known (undamaged) pixels and <Tex math="b" /> hold their values:
+          The mask marks a set <Tex math="\Omega" /> of damaged pixels. The backend assigns one
+          unknown to each marked pixel and stacks those values into{" "}
+          <Tex math="x\in\mathbb{R}^{N}" />. Unmarked pixels remain fixed at their input
+          intensities. Each color channel is solved independently.
         </p>
-        <Eq m="Ax = b" />
         <p>
-          Since <Tex math="k < N" />, there are fewer equations than unknowns — the system is{" "}
-          <span className="text-foreground">underdetermined</span>, so the known pixels alone cannot
-          fix the missing ones.
-        </p>
-      </Block>
-      <Block n={2} title="Null Space">
-        <p>
-          If <Tex math="x_0" /> satisfies <Tex math="Ax=b" />, then so does every{" "}
-          <Tex math="x_0 + z" /> with <Tex math="z\in\mathcal{N}(A)" />:
-        </p>
-        <Eq m="A(x_0+z) = Ax_0 + Az = b,\quad z\in\mathcal{N}(A)" />
-        <p>
-          By rank–nullity, <Tex math="\dim\mathcal{N}(A) = N - \operatorname{rank}(A) = N-k > 0" />.
-          Any values in the damaged pixels are "consistent" — we need an extra criterion to pick
-          one.
+          The numerical neighborhood is the four-connected pixel grid. For each unknown{" "}
+          <Tex math="p" />, its neighbors are split into unknown neighbors{" "}
+          <Tex math="\mathcal{N}_U(p)" /> and known neighbors <Tex math="\mathcal{N}_K(p)" />.
         </p>
       </Block>
-      <Block n={3} title="Regularization (Tikhonov)">
+      <Block n={2} title="Build the residuals">
         <p>
-          We prefer smooth images. Let <Tex math="L" /> be a finite-difference (gradient/Laplacian)
-          operator; penalize <Tex math="\|Lx\|^2" />:
+          The backend minimizes squared errors for three constraints. Each row compares a prediction
+          made from the unknown vector with a target value:
         </p>
-        <Eq m="\min_x\; \|Ax-b\|_2^2 + \lambda\,\|Lx\|_2^2" />
+        <Eq m="\begin{aligned}r_{pq}&=x_p-x_q && p,q\in\Omega,\ p\sim q\\r_{pq}&=x_p-I_q && p\in\Omega,\ q\notin\Omega,\ p\sim q\\r_{p,0}&=\sqrt{\lambda}(x_p-x_p^{(0)}) && p\in\Omega\end{aligned}" />
         <p>
-          Small <Tex math="\lambda" /> trusts the data; large <Tex math="\lambda" /> enforces
-          smoothness. If <Tex math="\mathcal{N}(A)\cap\mathcal{N}(L)=\{0\}" />, the solution is
-          unique.
-        </p>
-      </Block>
-      <Block n={4} title="Normal Equations">
-        <p>
-          Setting the gradient of the objective to zero gives a symmetric positive definite sparse
-          system:
-        </p>
-        <Eq m="(A^TA + \lambda L^TL)\,x = A^Tb" />
-        <p>
-          It is solved numerically with sparse direct solvers or conjugate gradients (e.g. SciPy{" "}
-          <code className="font-mono text-foreground">spsolve</code> /{" "}
-          <code className="font-mono text-foreground">cg</code>).
+          Here <Tex math="I_q" /> is the known pixel value, <Tex math="p\sim q" /> means
+          four-neighbor adjacency, and <Tex math="x_p^{(0)}" /> is the prior estimate used for that
+          damaged pixel.
         </p>
       </Block>
-      <Block n={5} title="Reconstruction">
+      <Block n={3} title="Least squares with Tikhonov regularization">
         <p>
-          The solution vector <Tex math="x^*" /> is reshaped back into an <Tex math="m\times n" />{" "}
-          array (per colour channel), clipped to the valid intensity range, and encoded as an image.
-          Quality is reported with PSNR, SSIM and the residual error.
+          Stack all residual rows into an operator <Tex math="C" /> and their targets into{" "}
+          <Tex math="d" />. The backend's exact objective is:
         </p>
-        <Eq m="\text{PSNR} = 10\log_{10}\!\left(\frac{\text{MAX}^2}{\text{MSE}}\right)" />
+        <Eq m="\min_x\; E(x)=\frac12\|Cx-d\|_2^2" />
+        <p>
+          The prior residual is scaled by <Tex math="\sqrt{\lambda}" />, so its squared contribution
+          is <Tex math="\frac{\lambda}{2}\|x-x^{(0)}\|_2^2" />. The current UI submits the fixed
+          value <Tex math="\lambda=0.01" />; the API accepts other positive values within the
+          backend's configured range.
+        </p>
+        <p>
+          For damaged pixels with known four-neighbors, <Tex math="x_p^{(0)}" /> is their mean
+          intensity. For interior pixels without known four-neighbors, the backend propagates a
+          nearby known boundary color inward using an eight-connected breadth-first traversal.
+        </p>
+      </Block>
+      <Block n={4} title="The equivalent linear system and uniqueness">
+        <p>
+          The least-squares optimality condition is <Tex math="C^T(Cx-d)=0" />. It is equivalent to
+          the normal equations below. The backend does not form these matrices; this equation shows
+          the model they solve.
+        </p>
+        <Eq m="C^TCx=C^Td,\qquad (\deg(p)+\lambda)x_p-\sum_{q\in\mathcal{N}_U(p)}x_q=\sum_{q\in\mathcal{N}_K(p)}I_q+\lambda x_p^{(0)}" />
+        <p>
+          Since <Tex math="\lambda>0" />, for every nonzero vector <Tex math="z" /> the model
+          satisfies <Tex math="z^TC^TCz=\|Cz\|_2^2\geq\lambda\|z\|_2^2>0" />. Thus the normal matrix
+          is symmetric positive definite and the quadratic objective has one unique minimum.
+        </p>
+      </Block>
+      <Block n={5} title="How the backend solves and checks it">
+        <p>
+          The service uses matrix-free LSQR (Golub–Kahan bidiagonalization). It evaluates products{" "}
+          <Tex math="Cv" />
+          and <Tex math="C^Tw" /> from stored grid edges, boundary indices, and prior weights
+          instead of storing a dense <Tex math="C" /> or explicitly forming <Tex math="C^TC" />. It
+          starts from the prior estimate and checks the relative normal residual:
+        </p>
+        <Eq m="\frac{\|C^T(d-Cx)\|_2}{\|C^Td\|_2+10^{-12}}<\text{tolerance}" />
+        <p>
+          The tolerance defaults to <Tex math="10^{-4}" /> and the iteration limit to 500. A nonzero
+          data residual <Tex math="Cx-d" /> may remain at a valid least-squares minimum; the normal
+          residual measures optimality. The solution is inserted only at masked pixels, then clipped
+          and rounded for image encoding. Preserved pixels and alpha are retained. PSNR and SSIM are{" "}
+          <code className="font-mono text-foreground">null</code>
+          for user uploads because no clean reference image is available.
+        </p>
       </Block>
     </PageShell>
   );

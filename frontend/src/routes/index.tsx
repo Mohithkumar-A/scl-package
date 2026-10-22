@@ -17,11 +17,11 @@ import { UploadCard } from "@/components/UploadCard";
 import { DamageGrid } from "@/components/DamageGrid";
 import { createMaskCanvasPNG, dataUrlToFile, validateMaskPixelCount } from "@/utils/mask";
 import { CompareSlider } from "@/components/CompareSlider";
-import { ResultsCard } from "@/components/ResultsCard";
 import { LoadingState } from "@/components/LoadingState";
 import { reconstructImage, isDemoMode } from "@/services/api";
 import { Button } from "@/components/ui/button";
-import type { ReconstructionResult, UploadedImage } from "@/types/reconstruction";
+import { useStudio } from "@/state/studio-context";
+import type { UploadedImage } from "@/types/reconstruction";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -30,45 +30,50 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Reconstruct damaged image regions using discrete harmonic linear systems and adjacent pixel projection.",
+          "Reconstruct damaged image regions with Tikhonov-regularized least squares and matrix-free LSQR.",
       },
       { property: "og:title", content: "Image Inpainting — Linear Algebra Restoration" },
       {
         property: "og:description",
         content:
-          "Reconstruct damaged image regions using discrete harmonic linear systems and adjacent pixel projection.",
+          "Reconstruct damaged image regions with Tikhonov-regularized least squares and matrix-free LSQR.",
       },
     ],
   }),
   component: Home,
 });
 
-// Mathematically optimal regularization parameter: balances Dirichlet boundaries and harmonic smoothing
-const OPTIMAL_LAMBDA = 0.01;
+// The frontend uses a fixed default; direct API clients may select another validated value.
+const DEFAULT_LAMBDA = 0.01;
 
 function Home() {
-  // Original uploaded image (kept unchanged so the user can always compare vs original and reset)
-  const [originalImage, setOriginalImage] = useState<UploadedImage | null>(null);
-
-  // Current active working image file and URL (accumulates repairs across multiple passes)
-  const [workingImage, setWorkingImage] = useState<{ file: File; url: string } | null>(null);
-
-  // Counter of completed inpainting passes
-  const [passCount, setPassCount] = useState<number>(0);
-
+  const {
+    originalImage,
+    setOriginalImage,
+    workingImage,
+    setWorkingImage,
+    passCount,
+    setPassCount,
+    result,
+    setResult,
+    view,
+    setView,
+    brushPixelCount,
+    setBrushPixelCount,
+    maskState,
+    setMaskState,
+    activeRequestIdRef,
+  } = useStudio();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ReconstructionResult | null>(null);
-  const [view, setView] = useState<"paint" | "compare" | "side">("paint");
-  const [brushPixelCount, setBrushPixelCount] = useState<number>(0);
   const brushCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const activeRequestIdRef = useState(() => ({ current: 0 }))[0];
 
   // Overall reset occurs ONLY when replacing or uploading a new image
   const onImage = (img: UploadedImage | null) => {
     activeRequestIdRef.current++;
     setOriginalImage(img);
     setWorkingImage(img ? { file: img.file, url: img.url } : null);
+    setMaskState(null);
     setPassCount(0);
     setResult(null);
     setError(null);
@@ -81,6 +86,7 @@ function Home() {
     if (!originalImage) return;
     activeRequestIdRef.current++;
     setWorkingImage({ file: originalImage.file, url: originalImage.url });
+    setMaskState(null);
     setPassCount(0);
     setResult(null);
     setError(null);
@@ -114,7 +120,7 @@ function Home() {
         file: workingImage.file,
         mask,
         maskDimensions: dims,
-        lambda: OPTIMAL_LAMBDA,
+        lambda: DEFAULT_LAMBDA,
         method: "tikhonov",
       });
 
@@ -165,7 +171,7 @@ function Home() {
               Image Inpainting Studio
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Precision Linear Algebra Restoration with Adjacent Pixel Projection
+              Tikhonov-Regularized Least Squares with Matrix-Free LSQR
             </p>
           </div>
 
@@ -313,6 +319,8 @@ function Home() {
                 disabled={loading}
                 brushCanvasRef={brushCanvasRef}
                 brushPixelCount={brushPixelCount}
+                persistedMaskState={maskState}
+                onMaskStateChange={setMaskState}
                 onBrushChange={(count) => {
                   activeRequestIdRef.current++;
                   setBrushPixelCount(count);
@@ -415,13 +423,6 @@ function Home() {
               </div>
             )}
           </div>
-
-          {/* Bottom Diagnostics Bar (Only Shown when Result Available) */}
-          {result && (
-            <div className="w-full">
-              <ResultsCard result={result} />
-            </div>
-          )}
         </div>
       )}
     </main>
