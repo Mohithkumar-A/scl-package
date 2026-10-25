@@ -417,7 +417,7 @@
         <div class="callout">
           <strong>Why LSQR?</strong> It solves the least-squares objective directly and avoids explicitly forming normal equations, which would square the system's condition number numerically.
         </div>
-        <p class="muted">Gauss-Seidel and Jacobi remain as reference solver functions, but the reconstruction service uses LSQR. Implementation: <code>backend/app/calculations/iterative_solver.py</code> and <code>backend/app/services/reconstruction_service.py</code>.</p>
+        <p class="muted">The reconstruction service uses matrix-free LSQR. Implementation: <code>backend/app/calculations/iterative_solver.py</code> and <code>backend/app/services/reconstruction_service.py</code>.</p>
       </section>
 
       <section class="panel" role="tabpanel" id="panel-7" aria-labelledby="tab-7" hidden>

@@ -12,7 +12,7 @@ This backend services the interactive web frontend for image inpainting. The fro
 
 ### Key Principles
 - **No Black Boxes**: Does **not** use `cv2.inpaint`, `skimage.restoration.inpaint_biharmonic`, deep learning models, pretrained weights, or opaque direct solvers (`numpy.linalg.solve`).
-- **Explainable Numerical Linear Algebra**: Builds the smoothness, boundary, and Tikhonov prior residuals and solves the resulting regularized least-squares problem with a matrix-free LSQR implementation. Gauss-Seidel and Jacobi routines remain available as reference solvers; the reconstruction service uses LSQR.
+- **Explainable Numerical Linear Algebra**: Builds the smoothness, boundary, and Tikhonov prior residuals and solves the resulting regularized least-squares problem with a streamlined, matrix-free Golub-Kahan LSQR implementation.
 - **Authentic Metrics**: Refuses to fabricate PSNR or SSIM metrics when no pristine ground-truth image exists. Reports the least-squares optimality residual $\|C^T(d-Cx)\|_2 / (\|C^Td\|_2 + \epsilon)$, iteration counts, convergence status, and execution runtimes.
 - **Zero Modification of Preserved Pixels**: All undamaged pixels ($M_{i,j} = 0$) are preserved bit-for-bit in the reconstructed image. Alpha transparency channels are preserved untouched.
 
@@ -37,7 +37,7 @@ backend/
 │   │   ├── mask_validation.py      # 8-connectivity analysis, region size & boundary verification
 │   │   ├── difference_operators.py # Graph topology, connected components, boundary projection
 │   │   ├── tikhonov.py             # Tikhonov-regularized residual operator assembly
-│   │   ├── iterative_solver.py     # Matrix-free LSQR plus reference Gauss-Seidel & Jacobi solvers
+│   │   ├── iterative_solver.py     # Matrix-free Golub-Kahan LSQR solver
 │   │   └── metrics.py              # Verifiable mathematical diagnostics
 │   └── utils/
 │       ├── image_io.py             # Pillow decoding/encoding, RGB/RGBA/Grayscale normalizer
@@ -279,8 +279,6 @@ The residual operator has three row groups: damaged-to-damaged differences, dama
 LSQR starts from the local prior estimate and iteratively refines it. Every five iterations (and on the final iteration), convergence is checked using the relative least-squares optimality residual:
 $$\text{rel\_optimality} = \frac{\|C^T(d-Cx)\|_2}{\|C^Td\|_2 + 10^{-12}}.$$
 The solver stops when this value is below the configured tolerance (default $10^{-4}$), reaches the configured iteration ceiling (default 500), or encounters a non-finite iterate. A nonzero data residual is expected in least squares and does not by itself mean the solver failed; the normal-equation residual measures whether the objective has been minimized.
-
-The legacy Gauss-Seidel and Jacobi functions remain in `iterative_solver.py` for comparison and existing analytical examples. The reconstruction service does not call them.
 
 ---
 

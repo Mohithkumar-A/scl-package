@@ -1,117 +1,103 @@
-"""Unit tests for the custom iterative linear system solver (Gauss-Seidel and Jacobi)."""
+"""Unit tests for the matrix-free Golub-Kahan LSQR iterative solver."""
 
 import numpy as np
 import pytest
 
 from app.api.errors import InpaintingException
-from app.calculations.difference_operators import GridTopology
-from app.calculations.iterative_solver import (
-    compute_residual,
-    solve_gauss_seidel,
-    solve_jacobi,
-)
-from app.calculations.tikhonov import TikhonovSystem
+from app.calculations.iterative_solver import solve_least_squares
+from app.calculations.tikhonov import LeastSquaresSystem
 
 
-def create_mock_system(
-    N: int,
-    diag: np.ndarray,
-    b: np.ndarray,
-    unknown_neighbors: list,
-    initial_guess: np.ndarray = None,
-) -> TikhonovSystem:
-    """Construct a mock TikhonovSystem for analytical testing."""
-    if initial_guess is None:
-        initial_guess = np.zeros(N, dtype=np.float64)
+def test_least_squares_analytical_system():
+    """Verify LSQR converges to the exact analytical least-squares normal solution.
 
-    topology = GridTopology(
-        num_unknowns=N,
-        idx_to_coord=np.zeros((N, 2), dtype=np.int32),
-        coord_to_idx=np.zeros((N, N), dtype=np.int32),
-        degree=diag - 1.0,
-        unknown_neighbors=[np.array(nbrs, dtype=np.int32) for nbrs in unknown_neighbors],
-        known_boundary_coords=[[] for _ in range(N)],
-    )
-
-    return TikhonovSystem(
-        num_unknowns=N,
-        diag=diag,
-        b=b,
-        initial_guess=initial_guess,
-        topology=topology,
-    )
-
-
-def test_analytical_2x2_system():
-    """Verify Gauss-Seidel and Jacobi against exact analytical solution.
-
-    System:
-        5*x0 - 1*x1 = 10
-       -1*x0 + 5*x1 = 10
-    Exact solution:
-        x0 = x1 = 10 / 4 = 2.5
+    Two unknowns x_0, x_1:
+      - edge constraint: x_0 - x_1 = 0
+      - boundary for x_0: x_0 = 10.0
+      - boundary for x_1: x_1 = 20.0
+      - prior terms with sqrt(lambda)
     """
-    N = 2
-    diag = np.array([5.0, 5.0], dtype=np.float64)
-    b = np.array([10.0, 10.0], dtype=np.float64)
-    neighbors = [[1], [0]]
+    lambda_val = 0.04
+    sqrt_lambda = float(np.sqrt(lambda_val))
+    edge_i = np.array([0], dtype=np.int32)
+    edge_j = np.array([1], dtype=np.int32)
+    boundary_i = np.array([0, 1], dtype=np.int32)
+    boundary_values = np.array([10.0, 20.0], dtype=np.float64)
+    prior = np.array([10.0, 20.0], dtype=np.float64)
 
-    system = create_mock_system(N, diag, b, neighbors)
+    system = LeastSquaresSystem(
+        num_unknowns=2,
+        edge_i=edge_i,
+        edge_j=edge_j,
+        boundary_i=boundary_i,
+        boundary_values=boundary_values,
+        sqrt_lambda=sqrt_lambda,
+        prior=prior,
+    )
 
-    res_gs = solve_gauss_seidel(system, max_iterations=200, tolerance=1e-6)
-    assert res_gs.converged is True
-    assert np.allclose(res_gs.x, [2.5, 2.5], atol=1e-5)
-    assert res_gs.final_residual < 1e-6
+    # Exact normal equations:
+    # (1 + 1 + lambda)*x0 - x1 = 10 + lambda*10
+    # -x0 + (1 + 1 + lambda)*x1 = 20 + lambda*20
+    diag = 2.0 + lambda_val
+    A = np.array([[diag, -1.0], [-1.0, diag]], dtype=np.float64)
+    b = np.array([10.0 + lambda_val * 10.0, 20.0 + lambda_val * 20.0], dtype=np.float64)
+    exact_x = np.linalg.solve(A, b)
 
-    res_jacobi = solve_jacobi(system, max_iterations=200, tolerance=1e-6)
-    assert res_jacobi.converged is True
-    assert np.allclose(res_jacobi.x, [2.5, 2.5], atol=1e-5)
+    res = solve_least_squares(system, max_iterations=200, tolerance=1e-7)
 
-
-def test_residual_calculation():
-    """Verify explicit residual vector r = b - A x."""
-    N = 2
-    diag = np.array([5.0, 5.0], dtype=np.float64)
-    b = np.array([10.0, 10.0], dtype=np.float64)
-    neighbors = [[1], [0]]
-
-    system = create_mock_system(N, diag, b, neighbors)
-
-    # For x = [0, 0], r = b = [10, 10]
-    r, res_norm, rel_res = compute_residual(system, np.array([0.0, 0.0]))
-    assert np.allclose(r, [10.0, 10.0])
-    assert np.isclose(res_norm, np.sqrt(200.0))
-
-    # For exact solution x = [2.5, 2.5], r = [0, 0]
-    r_exact, res_norm_exact, _ = compute_residual(system, np.array([2.5, 2.5]))
-    assert np.allclose(r_exact, [0.0, 0.0])
-    assert res_norm_exact < 1e-12
+    assert res.converged is True
+    assert res.final_residual < 1e-6
+    assert np.allclose(res.x, exact_x, atol=1e-4)
 
 
-def test_max_iterations_enforced():
-    """Verify solver does not falsely report convergence when iteration limit is reached."""
-    N = 2
-    diag = np.array([5.0, 5.0], dtype=np.float64)
-    b = np.array([10.0, 10.0], dtype=np.float64)
-    neighbors = [[1], [0]]
+def test_least_squares_empty_system():
+    """Empty system (0 unknowns) should return immediately."""
+    system = LeastSquaresSystem(
+        num_unknowns=0,
+        edge_i=np.array([], dtype=np.int32),
+        edge_j=np.array([], dtype=np.int32),
+        boundary_i=np.array([], dtype=np.int32),
+        boundary_values=np.array([], dtype=np.float64),
+        sqrt_lambda=0.1,
+        prior=np.array([], dtype=np.float64),
+    )
 
-    system = create_mock_system(N, diag, b, neighbors)
+    res = solve_least_squares(system)
+    assert len(res.x) == 0
+    assert res.iterations == 0
+    assert res.converged is True
+    assert res.final_residual == 0.0
 
-    # Run only 1 iteration with very tight tolerance
-    res = solve_gauss_seidel(system, max_iterations=1, tolerance=1e-12)
+
+def test_least_squares_max_iterations_enforced():
+    """Verify solver does not falsely report convergence when iteration limit is hit."""
+    system = LeastSquaresSystem(
+        num_unknowns=2,
+        edge_i=np.array([0], dtype=np.int32),
+        edge_j=np.array([1], dtype=np.int32),
+        boundary_i=np.array([0, 1], dtype=np.int32),
+        boundary_values=np.array([10.0, 100.0], dtype=np.float64),
+        sqrt_lambda=0.01,
+        prior=np.array([0.0, 0.0], dtype=np.float64),
+    )
+
+    res = solve_least_squares(system, max_iterations=1, tolerance=1e-12)
     assert res.iterations == 1
     assert res.converged is False
 
 
-def test_invalid_diagonal_detected():
-    """Non-positive diagonal elements must be rejected immediately."""
-    N = 2
-    diag = np.array([0.0, 5.0], dtype=np.float64)  # invalid zero diagonal
-    b = np.array([10.0, 10.0], dtype=np.float64)
-    neighbors = [[1], [0]]
-
-    system = create_mock_system(N, diag, b, neighbors)
+def test_least_squares_numerical_instability():
+    """Non-finite values during LSQR should raise a NUMERICAL_INSTABILITY InpaintingException."""
+    system = LeastSquaresSystem(
+        num_unknowns=2,
+        edge_i=np.array([0], dtype=np.int32),
+        edge_j=np.array([1], dtype=np.int32),
+        boundary_i=np.array([0, 1], dtype=np.int32),
+        boundary_values=np.array([np.nan, 20.0], dtype=np.float64),
+        sqrt_lambda=0.1,
+        prior=np.array([10.0, 20.0], dtype=np.float64),
+    )
 
     with pytest.raises(InpaintingException) as exc_info:
-        solve_gauss_seidel(system)
-    assert exc_info.value.code == "INVALID_DIAGONAL"
+        solve_least_squares(system)
+    assert exc_info.value.code == "NUMERICAL_INSTABILITY"

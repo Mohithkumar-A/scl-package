@@ -1,11 +1,11 @@
-"""Unit tests for the discrete difference operators and Tikhonov system formulation."""
+"""Unit tests for discrete difference operators and Tikhonov least-squares formulation."""
 
 import numpy as np
 import pytest
 
 from app.api.errors import InvalidLambdaError
 from app.calculations.difference_operators import build_grid_topology
-from app.calculations.tikhonov import construct_tikhonov_system
+from app.calculations.tikhonov import construct_least_squares_system, validate_lambda
 
 
 def test_topology_construction():
@@ -26,7 +26,7 @@ def test_topology_construction():
 
 
 def test_strict_diagonal_dominance():
-    """Verify system is strictly diagonally dominant for lambda > 0."""
+    """Verify the normal operator C^T C is strictly diagonally dominant for lambda > 0."""
     mask = np.zeros((5, 5), dtype=bool)
     mask[2, 2] = True  # Single center unknown
     mask[2, 3] = True  # Adjacent unknown
@@ -34,12 +34,17 @@ def test_strict_diagonal_dominance():
     channel = np.full((5, 5), 100.0, dtype=np.float32)
     topo = build_grid_topology(mask)
     lambda_val = 0.05
-    system = construct_tikhonov_system(channel, topo, lambda_val)
+    system = construct_least_squares_system(channel, topo, lambda_val)
 
+    # For each unknown index i, form the i-th column of C^T C via matvec and rmatvec
     for i in range(system.num_unknowns):
-        diag_val = system.diag[i]
-        off_diag_sum = len(topo.unknown_neighbors[i])  # each off-diagonal is -1
-        assert diag_val - off_diag_sum >= lambda_val
+        e_i = np.zeros(system.num_unknowns, dtype=np.float64)
+        e_i[i] = 1.0
+        ctc_col = system.rmatvec(system.matvec(e_i))
+        diag_val = ctc_col[i]
+        off_diag_sum = float(np.sum(np.abs(ctc_col))) - diag_val
+        # Diagonal dominance guarantee: A_ii - sum_{j!=i} |A_ji| >= lambda
+        assert diag_val - off_diag_sum >= lambda_val - 1e-12
 
 
 def test_lambda_validation():
@@ -50,10 +55,10 @@ def test_lambda_validation():
     channel = np.ones((3, 3), dtype=np.float32)
 
     with pytest.raises(InvalidLambdaError):
-        construct_tikhonov_system(channel, topo, 0.0)
+        construct_least_squares_system(channel, topo, 0.0)
 
     with pytest.raises(InvalidLambdaError):
-        construct_tikhonov_system(channel, topo, -0.5)
+        construct_least_squares_system(channel, topo, -0.5)
 
     with pytest.raises(InvalidLambdaError):
-        construct_tikhonov_system(channel, topo, float("nan"))
+        construct_least_squares_system(channel, topo, float("nan"))

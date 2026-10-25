@@ -21,9 +21,6 @@ class GridTopology:
         degree: np.ndarray,        # shape (N,): total spatial 4-neighbors inside image bounds
         unknown_neighbors: List[np.ndarray],  # list of 1D arrays of unknown neighbor indices
         known_boundary_coords: List[List[Tuple[int, int]]],  # list of (r, c) for known neighbors
-        nbr_matrix: Optional[np.ndarray] = None,    # shape (N, 4): int32, padded with N for missing neighbors
-        red_indices: Optional[np.ndarray] = None,   # shape (N_red,): coordinates with (r + c) % 2 == 0
-        black_indices: Optional[np.ndarray] = None, # shape (N_black,): coordinates with (r + c) % 2 == 1
         unknown_component_ids: Optional[np.ndarray] = None, # shape (N,): connected component index for each unknown
         comp_count: int = 1,
         projected_boundary_coords: Optional[np.ndarray] = None, # shape (N, 2): (kr, kc) closest known boundary pixel
@@ -45,26 +42,6 @@ class GridTopology:
             else np.ones(num_unknowns, dtype=np.int32)
         )
         self.comp_count = max(1, comp_count)
-
-        if nbr_matrix is not None:
-            self.nbr_matrix = nbr_matrix
-        else:
-            self.nbr_matrix = np.full((num_unknowns, 4), num_unknowns, dtype=np.int32)
-            for idx, unk in enumerate(unknown_neighbors):
-                if len(unk) > 0:
-                    self.nbr_matrix[idx, :len(unk)] = unk
-
-        if red_indices is not None and black_indices is not None:
-            self.red_indices = red_indices
-            self.black_indices = black_indices
-        else:
-            if num_unknowns > 0 and idx_to_coord is not None and len(idx_to_coord) == num_unknowns:
-                is_red = (idx_to_coord[:, 0] + idx_to_coord[:, 1]) % 2 == 0
-                self.red_indices = np.where(is_red)[0]
-                self.black_indices = np.where(~is_red)[0]
-            else:
-                self.red_indices = np.arange(0, num_unknowns, 2, dtype=np.int32)
-                self.black_indices = np.arange(1, num_unknowns, 2, dtype=np.int32)
 
 
 def build_grid_topology(mask: np.ndarray) -> GridTopology:
@@ -110,21 +87,6 @@ def build_grid_topology(mask: np.ndarray) -> GridTopology:
         unknown_neighbors.append(np.array(unk_nbrs, dtype=np.int32))
         known_boundary_coords.append(kn_nbrs)
 
-    # Pre-build dense (N, 4) neighbor index matrix (padded with N where missing)
-    nbr_matrix = np.full((num_unknowns, 4), num_unknowns, dtype=np.int32)
-    for idx, unk in enumerate(unknown_neighbors):
-        if len(unk) > 0:
-            nbr_matrix[idx, :len(unk)] = unk
-
-    # Red-Black partitioning for vectorized updates
-    if num_unknowns > 0:
-        is_red = (unknown_coords[:, 0] + unknown_coords[:, 1]) % 2 == 0
-        red_indices = np.where(is_red)[0]
-        black_indices = np.where(~is_red)[0]
-    else:
-        red_indices = np.array([], dtype=np.int32)
-        black_indices = np.array([], dtype=np.int32)
-
     # Label 8-connected components so each isolated hole uses its own local boundary values
     from collections import deque
     comp_offsets = [
@@ -162,9 +124,6 @@ def build_grid_topology(mask: np.ndarray) -> GridTopology:
         degree=degree,
         unknown_neighbors=unknown_neighbors,
         known_boundary_coords=known_boundary_coords,
-        nbr_matrix=nbr_matrix,
-        red_indices=red_indices,
-        black_indices=black_indices,
         unknown_component_ids=unknown_component_ids,
         comp_count=comp_count,
         projected_boundary_coords=projected_boundary_coords,
