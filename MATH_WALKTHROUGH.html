@@ -178,17 +178,20 @@
         </p>
         <div class="equation">
           \[
-            \Omega = \{p\in\mathcal D : M_p=1\},\qquad
-            \mathcal K = \mathcal D\setminus\Omega.
+            \Omega = \{p\in\mathcal D : M_p=1\}\quad\text{(damaged / unknown pixels)},
+            \qquad
+            \mathcal K = \mathcal D\setminus\Omega\quad\text{(known / preserved pixels)}.
           \]
         </div>
         <p>
-          \(\Omega\) is the unknown region; \(\mathcal K\) contains known pixels. For every \(q\in\mathcal K\), its
-          intensity \(I_q\) is a fixed boundary value. For every \(p\in\Omega\), the output intensity \(x_p\) is an
-          unknown to compute.
+          <strong>What this notation means:</strong>
+          \(\Omega\) (capital Omega) is the set of all pixel coordinates where the mask is white (\(M_p=1\)).
+          \(\mathcal K\) is the healthy remainder of the photograph.
+          For every known pixel \(q\in\mathcal K\), its color \(I_q\) is a fixed Dirichlet boundary condition.
+          For every damaged pixel \(p\in\Omega\), its intensity \(x_p\) is an unknown variable to solve for.
         </p>
         <div class="grid-2">
-          <div class="example"><h3>Mask threshold</h3><p>The mask is converted to grayscale; values greater than 127 become damaged/unknown, and values at or below 127 are preserved.</p></div>
+          <div class="example"><h3>Mask threshold</h3><p>The mask is converted to grayscale; values greater than 127 become damaged/unknown (\(M_p=1\)), and values at or below 127 are preserved (\(M_p=0\)).</p></div>
           <div class="example"><h3>Boundary requirement</h3><p>Each 8-connected damage region must touch at least one known pixel. A fully masked image has no boundary information, so the backend rejects it.</p></div>
         </div>
         <div class="callout">
@@ -209,10 +212,17 @@
           \]
         </div>
         <p>
-          Let \(d_p=|\mathcal N_4(p)|\), the number of in-image neighbors (usually 2–4). Each unknown pixel gets an
-          integer index \(i\in\{0,\ldots,N-1\}\), where \(N=|\Omega|\). The solution vector is
-          \(x=(x_0,\ldots,x_{N-1})^\mathsf T\). The implementation stores coordinate-to-index and index-to-coordinate
-          maps, plus each unknown's neighboring unknown indices and known boundary coordinates.
+          <strong>Plain language:</strong> \(\mathcal N_4(p)\) simply means the 4 immediate neighbors of pixel \(p\)
+          (Up, Down, Left, Right) that lie inside the image boundaries.
+        </p>
+        <p>
+          Let \(d_p=|\mathcal N_4(p)|\), the number of valid neighbors (usually 2–4).
+          Rather than dealing with a 2D table of thousands of rows and columns, we give each damaged pixel
+          a simple integer ID from \(0\) to \(N-1\) (where \(N=|\Omega|\) is the total damaged pixel count).
+          The unknown pixel values become a single vector:
+          \[
+            x = \begin{bmatrix} x_0 \\ x_1 \\ \vdots \\ x_{N-1} \end{bmatrix} \in \mathbb{R}^N.
+          \]
         </p>
         <div class="equation">
           <span class="equation-label">A single row of the grid graph</span>
@@ -248,11 +258,19 @@
           <span class="equation-label">Discrete energy for one channel</span>
           \[
             E(x)=
-            \frac12\sum_{\substack{\{p,q\}\subset\Omega\\p\sim q}}(x_p-x_q)^2
-            +\frac12\sum_{\substack{p\in\Omega,\,q\in\mathcal K\\p\sim q}}(x_p-I_q)^2
-            +\frac{\lambda}{2}\sum_{p\in\Omega}(x_p-x_p^{(0)})^2.
+            \underbrace{\frac12\sum_{\substack{\{p,q\}\subset\Omega\\p\sim q}}(x_p-x_q)^2}_{\text{Term 1: Internal Smoothness}}
+            +\underbrace{\frac12\sum_{\substack{p\in\Omega,\,q\in\mathcal K\\p\sim q}}(x_p-I_q)^2}_{\text{Term 2: Boundary Match to Photo}}
+            +\underbrace{\frac{\lambda}{2}\sum_{p\in\Omega}(x_p-x_p^{(0)})^2}_{\text{Term 3: Tikhonov Prior Anchor}}.
           \]
         </div>
+        <p>
+          <strong>What each term does in simple terms:</strong>
+          <ul>
+            <li><strong>Term 1 (Smoothness):</strong> Adds an error penalty if two neighboring damaged pixels have different colors. Encourages seamless gradients.</li>
+            <li><strong>Term 2 (Boundary Matching):</strong> Adds an error penalty if a damaged pixel on the edge doesn't match the healthy photo pixel right next to it.</li>
+            <li><strong>Term 3 (Tikhonov Anchor):</strong> Multiplied by weight \(\lambda > 0\), it prevents colors deep inside a hole from floating into wild numbers by anchoring them to a local boundary average \(x_p^{(0)}\).</li>
+          </ul>
+        </p>
         <h3>The same energy is a least-squares objective</h3>
         <p>Each squared difference is a residual. Let \(e_p\) be the coordinate vector for damaged pixel \(p\). Stack the residual rows into a matrix \(C\), and their target values into a vector \(d\):</p>
         <div class="equation">
@@ -495,6 +513,7 @@
         <code>backend/app/calculations/difference_operators.py</code>,
         <code>backend/app/calculations/tikhonov.py</code>,
         <code>backend/app/calculations/iterative_solver.py</code>,
+        <code>backend/app/calculations/metrics.py</code>,
         <code>backend/app/services/reconstruction_service.py</code>.
       </div>
       <footer>
