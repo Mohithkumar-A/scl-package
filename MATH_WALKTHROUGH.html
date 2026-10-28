@@ -116,14 +116,14 @@
       <div class="eyebrow">Backend mathematics · step-by-step</div>
       <h1>How does the backend fill damaged pixels?</h1>
       <p class="lede">
-        The backend treats marked pixels as unknown variables. It builds a sparse linear system whose equations say
-        “be smooth with your neighbors, respect the visible boundary, and stay near a local color prior,” then solves
-        that system separately for each color channel.
+        The backend treats marked pixels as unknown variables. It defines a matrix-free least-squares problem whose
+        equivalent normal equations say “be smooth with your neighbors, respect the visible boundary, and stay near a
+        local color prior,” then solves it separately for each color channel.
       </p>
 
       <section class="summary" aria-label="Core idea">
         <div class="summary-card"><strong>Unknowns</strong><span>Only pixels marked white in the mask are solved for.</span></div>
-        <div class="summary-card"><strong>Model</strong><span>A discrete 4-neighbor Laplacian plus a positive Tikhonov term.</span></div>
+        <div class="summary-card"><strong>Model</strong><span>A 4-neighbor graph Laplacian plus a positive Tikhonov term, solved matrix-free with LSQR.</span></div>
         <div class="summary-card"><strong>Guarantee</strong><span>Positive lambda makes the system symmetric positive definite.</span></div>
       </section>
 
@@ -187,7 +187,7 @@
           <strong>What this notation means:</strong>
           \(\Omega\) (capital Omega) is the set of all pixel coordinates where the mask is white (\(M_p=1\)).
           \(\mathcal K\) is the healthy remainder of the photograph.
-          For every known pixel \(q\in\mathcal K\), its color \(I_q\) is a fixed Dirichlet boundary condition.
+          For every known pixel \(q\in\mathcal K\), its color \(I_q\) is fixed boundary data.
           For every damaged pixel \(p\in\Omega\), its intensity \(x_p\) is an unknown variable to solve for.
         </p>
         <div class="grid-2">
@@ -241,7 +241,7 @@
           propagation use 8-connectivity, so diagonally touching damaged pixels count as one region.
         </p>
         <div class="callout caution">
-          <strong>Why not solve every image pixel?</strong> Known pixels are boundary conditions, not variables. Solving only the \(N\) damaged values saves work and guarantees that untouched pixels do not drift numerically.
+          <strong>Why not solve every image pixel?</strong> Known pixels are fixed data, not variables. Solving only the \(N\) damaged values saves work and guarantees that untouched pixels do not drift numerically.
         </div>
         <p class="muted">Implementation: <code>backend/app/calculations/difference_operators.py</code>.</p>
       </section>
@@ -268,7 +268,7 @@
           <ul>
             <li><strong>Term 1 (Smoothness):</strong> Adds an error penalty if two neighboring damaged pixels have different colors. Encourages seamless gradients.</li>
             <li><strong>Term 2 (Boundary Matching):</strong> Adds an error penalty if a damaged pixel on the edge doesn't match the healthy photo pixel right next to it.</li>
-            <li><strong>Term 3 (Tikhonov Anchor):</strong> Multiplied by weight \(\lambda > 0\), it prevents colors deep inside a hole from floating into wild numbers by anchoring them to a local boundary average \(x_p^{(0)}\).</li>
+            <li><strong>Term 3 (Tikhonov Anchor):</strong> Multiplied by weight \(\lambda > 0\), it keeps each unknown near a local prior \(x_p^{(0)}\). Boundary pixels use the mean of known 4-neighbors; interior pixels use a propagated nearby known color.</li>
           </ul>
         </p>
         <h3>The same energy is a least-squares objective</h3>
@@ -286,7 +286,8 @@
             E(x)=\frac12\|Cx-d\|_2^2.
           \]
         </div>
-        <p>This is <strong>Tikhonov-regularized least squares</strong>: least squares minimizes the sum of squared residuals, and weighting the prior residual by \(\sqrt{\lambda}\) gives the Tikhonov penalty. The backend assembles the equivalent neighbor equations directly; it does not explicitly store \(C\) or multiply \(C^TC\).</p>
+        <p>This is <strong>Tikhonov-regularized least squares</strong>: least squares minimizes the sum of squared residuals, and weighting the prior residual by \(\sqrt{\lambda}\) gives the Tikhonov penalty. The backend applies the equivalent neighbor equations directly; it does not explicitly store \(C\) or multiply \(C^TC\).</p>
+        <p class="muted">The known image pixels are fixed exactly. The boundary residuals are soft penalties on adjacent unknowns; they do not force one unknown pixel to equal all of its known neighbors.</p>
         <ol>
           <li><strong>Unknown-to-unknown smoothness:</strong> neighboring damaged pixels are encouraged to have similar intensity.</li>
           <li><strong>Boundary fit:</strong> the damaged area is tied to the actual surrounding known pixels.</li>
@@ -303,7 +304,7 @@
           <div class="example"><h3>Larger \(\lambda\)</h3><p>The solution is pulled more strongly toward its local prior. Extremely large values can make the fill look more like that prior.</p></div>
         </div>
         <div class="callout caution">
-          <strong>What “Tikhonov” means here:</strong> the code does not call an opaque image-repair library. It explicitly assembles the Laplacian-plus-identity system and solves it iteratively.
+          <strong>What “Tikhonov” means here:</strong> the code does not call an opaque image-repair library. It defines a matrix-free residual operator whose equivalent normal equations have the graph-Laplacian-plus-λI form, then solves the least-squares problem iteratively.
         </div>
         <p class="muted">The UI currently submits \(\lambda=0.01\); the backend validates the request value against its configured minimum and maximum.</p>
       </section>
@@ -459,7 +460,8 @@
         <ul>
           <li>The solver checks this optimality residual every 5 iterations and on the last permitted iteration.</li>
           <li>Default stopping settings are tolerance \(10^{-4}\) and at most 500 iterations; both can be configured on the backend.</li>
-          <li>If the tolerance is reached, the response reports <code>converged: true</code>. If the iteration ceiling is reached first, it reports <code>converged: false</code> with the final optimality residual.</li>
+          <li>After clipping the solution to the valid intensity range, the solver recomputes the optimality residual for the values it will return. The response's <code>converged</code> flag is based on that final residual being below tolerance.</li>
+          <li>The service solves each color channel separately and reports the largest iteration count and final residual across channels.</li>
           <li>Non-finite iterates trigger a numerical-instability error.</li>
         </ul>
         <div class="callout caution">
